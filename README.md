@@ -158,7 +158,8 @@ FDR collects the following data which is the minimum required in the FDR file:
   - pitch
   - roll
 
-`fdr_optional` data is saved after these mandatory values.
+`fdr_optional` data is saved after these mandatory values as additional columns,
+one column per additional dataref.
 
 
 ## Installation
@@ -175,10 +176,18 @@ When completed, simply reload XPPython3 script again.
 
 ## Reader
 
-There is a compagnon script fdr_reader that reads a FDR record file and generates
+There is a compagnon script `fdr_reader.py` that reads a FDR record file and generates
 a GeoJSON file that can be viewed on geojson.io for example.
 
 Column data is presented as a list of GeoJSON properties along with (3D) position.
+
+
+## Viewer
+
+There is a compagnon web page `frd_viewer.html` to display FDR file content
+in a simple, basic map and charting page.
+
+The viewer is under development.
 
 
 ## Troubleshooting
