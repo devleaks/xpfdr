@@ -1,4 +1,4 @@
-"""Flight data recorder
+"""X-Plane Flight Data Recorder
 
 XPPython3 Plug In to create a FDR file during a flight.
 
@@ -38,6 +38,13 @@ DISA, 0
 WIND, 270,15
 
 By convention, last comment before data contains the header column name (FDRData.name)
+
+
+CHANGELOG
+
+1.0.0 07-SEP-2026 Initial reelase
+1.1.0 07-SEP-2026 Adjusted callbacks expression to use RPN rather than python eval of lambda expression (too dangerous for production release)
+
 """
 
 import os
@@ -82,7 +89,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 SHOW_TRACE = False
 NAME = "FDR"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 DESCRIPTION = "Flight Data Recordder"
 
 FDR_MENU = "Start or stop FDR"
@@ -104,7 +111,7 @@ AUTOSTOP_THRESHOLD = 600.0  # seconds
 TAKEOFF_ELEV = 10.0  # m
 LANDING_ELEV = 50.0  # m
 REG_LEN = 10
-USE_RPC = False
+USE_CALLBACK = False
 
 
 class RPC:
@@ -207,7 +214,7 @@ class FDRData:
     dataref: str  # sim/aircraft/view/acf_tailnum
     range_min: int = -1
     range_max: int = -1
-    callback: Callable | None = None
+    callback: Callable | str | None = None
     unit: str | None = None
     force_datatype: str | None = None
     factor: float = 1.0
@@ -231,7 +238,7 @@ class FDRData:
         s = repr(self)
         if self.callback is None:
             return s
-        if USE_RPC:
+        if not USE_CALLBACK:
             return s
         else:
             if hasattr(self, HIDDEN_CB_SRC):  # callback installed through eval()
@@ -275,13 +282,13 @@ class FDRData:
                 print(f"{NAME} {VERSION}::FDRData.value: workaround for index 0 of array ({self.dataref}={v[0]} (xppython3={xp.VERSION})")
                 v = v[0]
             if v is not None and self.callback is not None:
-                if USE_RPC:
-                    expr = self.callback.replace("${x}", v)
-                    rpc = RPC(expr)
-                    v = r.calculate()
-                    logger.debug(f"{NAME} {VERSION}::FDRData.value: RPC {self.name}: {self.callback} => {expr} => {value}")
-                else:
+                if USE_CALLBACK:
                     v = self.callback(v)
+                else:
+                    expr = self.callback.replace("${x}", str(v))
+                    rpc = RPC(expr)
+                    v = rpc.calculate()
+                    # print(f"{NAME} {VERSION}::FDRData.value: RPC {self.name}: {self.callback} => {expr} => {v}")
         except Exception as e:
             print(f"{NAME} {VERSION}::FDRData.value: callback {self.name} {self.dataref} exception: {e}")
             v = None
@@ -295,8 +302,8 @@ HEADER = [
     # FDRData(name="ICAO", dataref="sim/aircraft/view/acf_ICAO"),
     FDRData(name="DMON", dataref="sim/cockpit2/clock_timer/current_month"),
     FDRData(name="DDAY", dataref="sim/cockpit2/clock_timer/current_day"),
-    FDRData(name="SEAL", dataref="sim/weather/region/sealevel_pressure_pas", callback=lambda x: x * 0.00029529980164712),  # 1 pascal = 0.00029529980164712 in hg
-    FDRData(name="WSPD", dataref="sim/weather/aircraft/wind_now_speed_msc", callback=lambda x: x * 1.94384449),  # 1 m/s = 1,94384449 kt, FDR expects kt
+    FDRData(name="SEAL", dataref="sim/weather/region/sealevel_pressure_pas", callback="${x} 0.00029529980164712 *"),  # 1 pascal = 0.00029529980164712 in hg
+    FDRData(name="WSPD", dataref="sim/weather/aircraft/wind_now_speed_msc", callback="${x} 1.94384449 *"),  # 1 m/s = 1,94384449 kt, FDR expects kt
     FDRData(name="WDIR", dataref="sim/weather/aircraft/wind_now_direction_degt"),
     FDRData(name="DISA", dataref="sim/weather/region/temperatures_aloft_deg_c[0]"),  # not sure where to fetch temperature offset from ISA
     FDRData(name="REPL", dataref="sim/operation/prefs/replay_mode"),  # no FDR onreplays (sim/time/is_in_replay)
@@ -313,7 +320,7 @@ HEADER = [
 FDR_DATA = [
     FDRData(name="longitude", dataref="sim/flightmodel/position/longitude"),
     FDRData(name="latitude", dataref="sim/flightmodel/position/latitude"),
-    FDRData(name="altitude", dataref="sim/flightmodel/position/elevation", callback=lambda x: x * 3.28084, unit="ft"),  # m to ft, FDR expects ft
+    FDRData(name="altitude", dataref="sim/flightmodel/position/elevation", callback="${x} 3.28084 *", unit="ft"),  # m to ft, FDR expects ft
     FDRData(name="heading", dataref="sim/cockpit2/gauges/indicators/heading_electric_deg_mag_pilot"),
     FDRData(name="pitch", dataref="sim/cockpit2/gauges/indicators/pitch_electric_deg_pilot"),
     FDRData(name="roll", dataref="sim/cockpit2/gauges/indicators/roll_electric_deg_pilot"),
@@ -403,6 +410,18 @@ class PythonInterface:
             self.debug("flight_status: stopped (2)")
         return round((self.system_now_datetime - self.last_stop).total_seconds(), 0)
 
+    def calibration(self, takeoff: bool = True):
+        move = "TAKEOFF" if takeoff else "LANDING"
+        try:
+            lat = self.fdr_data_by_name.get("latitude").value
+            lon = self.fdr_data_by_name.get("longitude").value
+            alt = self.header.get("ABGL").value
+            self.debug(f"CALI lat={lat}, lon={lon}, alt={alt}", force=True)
+            self.debug(f"COMM CALI {move} PRECISION: recording frequency={self.frequency} secs.", force=True)
+            self.debug(f"COMM CALI {move} not written to FDR file", force=True)
+        except Exception as e:
+            self.debug(f"calibration: error: {e}", force=True)
+
     @property
     def flight_status(self) -> FLIGHT:
         # Are we moving? Are we in the air?
@@ -442,9 +461,11 @@ class PythonInterface:
             t = self.elevs[-1][0] - self.elevs[0][0]
             # self.debug(f"flight_status: vertical regression: {round(r, 2)} m/s ({round(r*196.85039, 0)} ft/m) (delta t={round(t, 2)} secs, {REG_LEN} pts), err={round(e, 2)}")
             if elev < LANDING_ELEV and r < 0.0:
+                self.calibration(takeoff=False)
                 self.debug("flight_status: landing")
                 # self.frequency = 1.0
             elif self.estimated_state == FLIGHT.MOVING_ON_GROUND and elev > TAKEOFF_ELEV and r > 0.0:
+                self.calibration(takeoff=True)
                 self.debug("flight_status: takeoff")
                 # self.frequency = 5.0
             self.last_agl = elev
@@ -739,7 +760,7 @@ class PythonInterface:
                 if callback is not None:
                     del d["callback"]
                 f = FDRData(**d)
-                if callback is not None:
+                if USE_CALLBACK and callback is not None:
                     if len(callback) < CB_LEN:
                         self.debug(f"install_preferences: eval callback {callback}", force=True)
                         setattr(f, HIDDEN_CB_SRC, callback)
@@ -761,7 +782,7 @@ class PythonInterface:
                 if callback is not None:
                     del d["callback"]
                 f = FDRData(**d)
-                if callback is not None:
+                if USE_CALLBACK and callback is not None:
                     if len(callback) < CB_LEN:
                         self.debug(f"eval callback {callback}", force=True)
                         setattr(f, HIDDEN_CB_SRC, callback)

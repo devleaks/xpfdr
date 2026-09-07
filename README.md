@@ -99,7 +99,7 @@ Collected data is described by the following fields:
   - `dataref`: Name of dataref whose value is part of the data record. Mandatory.
   - `units`: Information field of dataref value unit. Saved as a comment in the header of the record file. Optional.
   - `factor`: Convertion factor (float value) used by FDR DREF parameter. Optional.
-  - `callback`: very short python lambda expression to convert dataref value before it is saved to the record. Optional.
+  - `callback`: Reverse polish notation expression. ${x} is replaced with the dataref value. Optional.
 
 Callback expression is very limited in size and capabilities.
 Their goal is a provide an easy mechanism to alter raw dataref values to meaningful record value
@@ -107,20 +107,13 @@ with minimal modification.
 
 Typical, unit adjustment expressions like
 
-```python
-lambda x: x * 0.3048  # convert ft to m
-lambda x: (x - 32) / 1.8  # convert farenheit to celsius
-lambda x: round(x) == 0 # returns boolean value True when rounds to zero
-lambda x: "on" if x == 1 else "off" # returns string value on/off
+```
+${x} 0.3048 * # convert ft to m
+${x} 32 - 1.8 / # convert farenheit to celsius
+${x} 0 round 0 eq # returns 1.0 when rounds to zero
 ```
 
-are harmless. (In the above expression x is the raw dataref value.)
-
-Expression must be simple and short.
-No python package can be used in expression.
-Callback shall be used very cautiously as it may crash both FDR and X-Plane.
-
-*In a later release FDR may change for a more robust callback expression mechanism.*
+In the above expression ${x} is the raw dataref value.
 
 It is a alternate, more sophisticated method to FDR DREF factor parameter.
 
