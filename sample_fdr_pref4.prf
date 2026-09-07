@@ -1,0 +1,82 @@
+fdr_version: 4.0.0
+description: Sample preference file from FDR Version 4 format description file
+frequency: 5
+report_frequency: 200
+fdr_optional:
+    ### PART 1
+    - name: barometer_setting_in_hg_pilot
+      dataref: sim/cockpit2/gauges/actuators/barometer_setting_in_hg_pilot
+    - name: airspeed_kts_pilot
+      dataref: sim/cockpit2/gauges/indicators/airspeed_kts_pilot
+    - name: true_airspeed_kts_pilot
+      dataref: sim/cockpit2/gauges/indicators/true_airspeed_kts_pilot
+    - name: ground_speed_kt
+      dataref: sim/cockpit2/gauges/indicators/ground_speed_kt
+    - name: altitude_ft_pilot
+      dataref: sim/cockpit2/gauges/indicators/altitude_ft_pilot
+    - name: vvi_fpm_pilot
+      dataref: sim/cockpit2/gauges/indicators/vvi_fpm_pilot
+    - name: outside_air_temp_degc
+      dataref: sim/cockpit2/temperature/outside_air_temp_degc
+    - name: battery_voltage_indicated_volts[0]
+      dataref: sim/cockpit2/electrical/battery_voltage_indicated_volts[0]
+    - name: battery_voltage_indicated_volts[1]
+      dataref: sim/cockpit2/electrical/battery_voltage_indicated_volts[1]
+    - name: m_fuel[0]
+      dataref: sim/flightmodel/weight/m_fuel[0]
+    - name: m_fuel[1]
+      dataref: sim/flightmodel/weight/m_fuel[1]
+    - name: fuel_flow_kg_sec[0]
+      dataref: sim/cockpit2/engine/indicators/fuel_flow_kg_sec[0]
+    - name: fuel_pressure_psi[0]
+      dataref: sim/cockpit2/engine/indicators/fuel_pressure_psi[0]
+    - name: oil_temperature_deg_C[0]
+      dataref: sim/cockpit2/engine/indicators/oil_temperature_deg_C[0]
+    - name: oil_pressure_psi[0]
+      dataref: sim/cockpit2/engine/indicators/oil_pressure_psi[0]
+    - name: torque_n_mtr[0]
+      dataref: sim/cockpit2/engine/indicators/torque_n_mtr[0]
+    - name: prop_speed_rsc[0]
+      dataref: sim/cockpit2/engine/indicators/prop_speed_rsc[0]
+    - name: N1_percent[0]
+      dataref: sim/cockpit2/engine/indicators/N1_percent[0]
+    - name: ITT_deg_C[0]
+      dataref: sim/cockpit2/engine/indicators/ITT_deg_C[0]
+    - name: nav1_frequency_hz
+      dataref: sim/cockpit2/radios/actuators/nav1_frequency_hz
+    - name: nav2_frequency_hz
+      dataref: sim/cockpit2/radios/actuators/nav2_frequency_hz
+    - name: com1_frequency_hz
+      dataref: sim/cockpit2/radios/actuators/com1_frequency_hz
+    - name: com2_frequency_hz
+      dataref: sim/cockpit2/radios/actuators/com2_frequency_hz
+    ### PART 2
+    - name: override_flightdir
+      dataref: sim/operation/override/override_flightdir
+    - name: flight_director_command_bars_pilot
+      dataref: sim/cockpit2/autopilot/flight_director_command_bars_pilot
+    - name: flight_director_roll
+      dataref: sim/cockpit/autopilot/flight_director_roll
+    - name: flight_director_pitch
+      dataref: sim/cockpit/autopilot/flight_director_pitch
+    - name: override_autopilot
+      dataref: sim/operation/override/override_autopilot
+    - name: autopilot_mode
+      dataref: sim/cockpit/autopilot/autopilot_mode
+    - name: heading_mode
+      dataref: sim/cockpit2/autopilot/heading_mode
+    - name: altitude_mode
+      dataref: sim/cockpit2/autopilot/altitude_mode
+    - name: override_nav1_needles
+      dataref: sim/operation/override/override_nav1_needles
+    - name: glideslope_signal_valid[0-6]
+      dataref: sim/cockpit/radios/glideslope_signal_valid[0-6]
+    - name: HSI_source_select_pilot
+      dataref: sim/cockpit2/radios/actuators/HSI_source_select_pilot
+    - name: hsi_obs_deg_mag_pilot
+      dataref: sim/cockpit2/radios/actuators/hsi_obs_deg_mag_pilot
+    - name: nav1_hdef_dots_pilot
+      dataref: sim/cockpit2/radios/indicators/nav1_hdef_dots_pilot
+    - name: nav1_vdef_dots_pilot
+      dataref: sim/cockpit2/radios/indicators/nav1_vdef_dots_pilot
+

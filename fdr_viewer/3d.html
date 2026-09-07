@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Display a map</title>
+    <script src="https://unpkg.com/deck.gl@latest/dist.min.js"></script>
+    <!-- optional if maplibre base map is needed -->
+    <script src="https://unpkg.com/maplibre-gl@3.0.0/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.0.0/dist/maplibre-gl.css" rel="stylesheet" />
+    <!-- Allow the map to render in full screen  -->
+    <style>
+      body {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+      }
+    </style>
+</head>
+<body>
+<script type="module">
+//This example renders a scatterplot with DeckGL, on top of a basemap rendered with maplibre-gl, using a map style JSON from Carto.
+const {DeckGL, GeoJsonLayer, SunLight, LightingEffect} = deck;
+
+fetch('out.geojson')
+  .then(response => response.json())
+  .then(data => {
+        const fc = data.features
+
+        // const directionalLight = new SunLight({
+        //   timestamp: Date.UTC(2024, 7, 1, 22),
+        //   color: [255, 255, 255],
+        //   intensity: 1.0,
+        // });
+
+        // const lightingEffect = new LightingEffect({directionalLight});
+
+        const flight = new GeoJsonLayer({
+          id: 'flight',
+          data: fc[fc.length-4],
+
+          stroked: true,
+          filled: true,
+          pointType: 'circle+text',
+          pickable: true,
+
+          getFillColor: [160, 160, 0, 50],
+          getLineColor: [0, 0, 200],
+          getLineWidth: 20,
+          getPointRadius: 20,
+          getText: f => f.properties.name,
+          getTextSize: 13
+        });
+
+        const shadow = new GeoJsonLayer({
+          id: 'shadow',
+          data: fc[fc.length-2],
+
+          stroked: true,
+          filled: true,
+          pointType: 'circle+text',
+          pickable: true,
+
+          getFillColor: [160, 160, 0, 50],
+          getLineColor: [210, 210, 220],
+          getLineWidth: 20,
+          getPointRadius: 20,
+          getText: f => f.properties.name,
+          getTextSize: 13
+        });
+
+        new DeckGL({
+          mapStyle: 'https://basemaps.cartocdn.com/gl/positron-nolabels-gl-style/style.json',
+          initialViewState: {
+            longitude: 4.47,
+            latitude: 50.46,
+            zoom: 12
+          },
+          controller: true,
+          layers: [
+            flight, shadow
+          ],
+          // effects: [lightingEffect]
+        });
+
+});
+
+</script>
+</body>
+</html>
