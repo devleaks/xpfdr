@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+fdr_viewer/chartjs/* linguist-vendored
+fdr_viewer/leaflet/* linguist-vendored
+fdr_viewer/luxon/* linguist-vendored

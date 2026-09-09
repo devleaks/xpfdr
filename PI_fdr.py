@@ -44,6 +44,7 @@ CHANGELOG
 
 1.0.0 07-SEP-2026 Initial reelase
 1.1.0 07-SEP-2026 Adjusted callbacks expression to use RPN rather than python eval of lambda expression (too dangerous for production release)
+1.2.0 08-SEP-2026 Added python slice() dataref array range parsing like [:-6] and index list like [1,3,5]
 
 """
 
@@ -52,6 +53,7 @@ import inspect
 import re
 import math
 import tomllib
+from functools import reduce
 from datetime import datetime, timedelta, timezone
 from traceback import print_exc
 from typing import Callable, Any
@@ -89,7 +91,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 SHOW_TRACE = False
 NAME = "FDR"
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 DESCRIPTION = "Flight Data Recordder"
 
 FDR_MENU = "Start or stop FDR"
@@ -111,7 +113,8 @@ AUTOSTOP_THRESHOLD = 600.0  # seconds
 TAKEOFF_ELEV = 10.0  # m
 LANDING_ELEV = 50.0  # m
 REG_LEN = 10
-USE_CALLBACK = False
+USE_CALLBACK = False  # use at your own risk
+DREF_SUB = "${x}"
 
 
 class RPC:
@@ -205,6 +208,7 @@ class OOOI(IntEnum):
 # Helper data class container
 #
 HIDDEN_CB_SRC = "_callback_src"
+HIDDEN_DREF_SRC = "_dataref_src"
 CB_LEN = 64
 
 
@@ -212,8 +216,8 @@ CB_LEN = 64
 class FDRData:
     name: str  # tail number
     dataref: str  # sim/aircraft/view/acf_tailnum
-    range_min: int = -1
-    range_max: int = -1
+    pyslice: slice | None = None
+    _indices: list | None = None
     callback: Callable | str | None = None
     unit: str | None = None
     force_datatype: str | None = None
@@ -221,16 +225,37 @@ class FDRData:
     dref = None
 
     def init(self) -> bool:
+        # One day, we may accept values like "sim/dataref_array[1,5,7,9]"
+        setattr(self, HIDDEN_DREF_SRC, self.dataref)  # keep a copy of original request
+        whole_dref = self.dataref
         try:
-            self.dref = find_dataref(self.dataref)
-            has_range = re.match(r"\[(\d)+-(\d)+\]", self.dataref)
-            if has_range:
-                self.range_min = has_range[0]
-                self.range_max = has_range[1]
-                print(f"{NAME} {VERSION}::FDRData.init: array range currently not allowed")
+            has_slice = re.match(r"(?P<path>[^\[]+)\[(?P<s>[-\d]*)(:(?P<e>[-\d]*)?(:(?P<i>[-\d]*))?)+\]", self.dataref)  # python slice syntax
+            # print(f"{NAME} {VERSION}::FDRData.init: parsing: {whole_dref} {has_slice}")
+            if has_slice:
+                whole_dref = has_slice.group("path")
+                s0 = None if not has_slice.group("s") or has_slice.group("s") == "" else int(has_slice.group("s"))
+                e0 = None if not has_slice.group("e") or has_slice.group("e") == "" else int(has_slice.group("e"))
+                i0 = None if not has_slice.group("i") or has_slice.group("i") == "" else int(has_slice.group("i"))
+                self.pyslice = slice(s0, e0, i0)
+                print(f"{NAME} {VERSION}::FDRData.init: array slice currently experimental: {self.name} {self.dataref}")
+                self.dref = find_dataref(whole_dref)
+                print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, {self.pyslice} -> {self.indices})")
+                return True
+            if "[" in whole_dref:
+                s = whole_dref[whole_dref.index("[") + 1 : whole_dref.index("]")]
+                if "," in s:
+                    self._indices = {int(i) for i in s.replace(" ", "").split(",")}
+                    whole_dref = whole_dref[:whole_dref.index("[")]
+                    self.dref = find_dataref(whole_dref)
+                    print(f"{NAME} {VERSION}::FDRData.init: array indices currently experimental: {self.name} {self.dataref}")
+                    print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, '{s}' -> {self._indices}")
+                else:
+                    print(f"{NAME} {VERSION}::FDRData.init: unique index: {whole_dref}")
+            self.dref = find_dataref(whole_dref)
             return self.dref is not None
         except Exception as e:
-            print(f"{NAME} {VERSION}::FDRData.init: {self.dataref} init failed: {e}")
+            print(f"{NAME} {VERSION}::FDRData.init: {whole_dref} init failed: {e}")
+            print_exc()
         return False
 
     def fun(self) -> str | None:
@@ -267,7 +292,54 @@ class FDRData:
         return "float_array" in self.dref.types or "int_array" in self.dref.types or "data" in self.dref.types
 
     @property
-    def value(self) -> int | float | str | None:
+    def length(self) -> int:
+        # return dataref length if it is an array (int or float)
+        LENGTH = "_length"
+        if self.dref is None:
+            print(f"{NAME} {VERSION}::FDRData.length: {self.dataref} no dref")
+            return 0
+        if hasattr(self, LENGTH):  # cached
+            return getattr(self, LENGTH)
+        v = self.dref.value
+        if v is None:
+            return 0
+        if isinstance(v, (list, tuple, dict)):
+            setattr(self, LENGTH, len(v))
+            return self._length
+        setattr(self, LENGTH, 1)
+        return 1
+
+    @property
+    def indices(self) -> set:
+        if self.dref is None:
+            print(f"{NAME} {VERSION}::FDRData.indices: {self.dataref} no dref")
+            return set()
+        # selected indices
+        if self._indices is not None:
+            return set(self._indices)
+        l = self.length
+        # if only one index requested
+        if l < 2:
+            return {0}
+        # slice()
+        if self.pyslice is None:
+            return set(range(l))  # all indices
+        return set(range(l)[self.pyslice])
+
+    def applyCallback(self, value: float | int) -> float | int:
+        v = value
+        if value is not None and self.callback is not None:  # if array, should use callback on each value?
+            if USE_CALLBACK:
+                v = self.callback(value)
+            else:
+                expr = self.callback.replace(DREF_SUB, str(value))
+                rpc = RPC(expr)
+                v = rpc.calculate()
+                # print(f"{NAME} {VERSION}::FDRData.value: RPC {self.name}: {self.callback} => {expr} => {v}")
+        return v
+
+    @property
+    def value(self) -> int | float | str | list | None:
         if self.dref is None:
             print(f"{NAME} {VERSION}::FDRData.value: {self.name} {self.dataref} no dref")
             try:  # try to re-init it
@@ -278,17 +350,17 @@ class FDRData:
         v = None
         try:
             v = self.dref.value
-            if self.is_array and "[0]" in self.dataref:  # bug XPPython3, returns while array for a[0] instead of scalar value
-                print(f"{NAME} {VERSION}::FDRData.value: workaround for index 0 of array ({self.dataref}={v[0]} (xppython3={xp.VERSION})")
-                v = v[0]
-            if v is not None and self.callback is not None:
-                if USE_CALLBACK:
-                    v = self.callback(v)
-                else:
-                    expr = self.callback.replace("${x}", str(v))
-                    rpc = RPC(expr)
-                    v = rpc.calculate()
-                    # print(f"{NAME} {VERSION}::FDRData.value: RPC {self.name}: {self.callback} => {expr} => {v}")
+            if self.is_array:
+                if "[0]" in self.dataref:  # bug XPPython3, returns while array for a[0] instead of scalar value
+                    print(f"{NAME} {VERSION}::FDRData.value: workaround for index 0 of array ({self.dataref}={v[0]} (xppython3={xp.VERSION})")
+                    v = v[0]
+                if isinstance(v, (list, tuple)):
+                    if self._indices is not None:
+                        return [self.applyCallback(v[i]) for i in self._indices]
+                    if self.pyslice is not None:
+                        return [self.applyCallback(i) for i in v[self.pyslice]]
+                    return v
+            v = self.applyCallback(v)
         except Exception as e:
             print(f"{NAME} {VERSION}::FDRData.value: callback {self.name} {self.dataref} exception: {e}")
             v = None
@@ -302,8 +374,8 @@ HEADER = [
     # FDRData(name="ICAO", dataref="sim/aircraft/view/acf_ICAO"),
     FDRData(name="DMON", dataref="sim/cockpit2/clock_timer/current_month"),
     FDRData(name="DDAY", dataref="sim/cockpit2/clock_timer/current_day"),
-    FDRData(name="SEAL", dataref="sim/weather/region/sealevel_pressure_pas", callback="${x} 0.00029529980164712 *"),  # 1 pascal = 0.00029529980164712 in hg
-    FDRData(name="WSPD", dataref="sim/weather/aircraft/wind_now_speed_msc", callback="${x} 1.94384449 *"),  # 1 m/s = 1,94384449 kt, FDR expects kt
+    FDRData(name="SEAL", dataref="sim/weather/region/sealevel_pressure_pas", callback=f"{DREF_SUB} 0.00029529980164712 *"),  # 1 pascal = 0.00029529980164712 in hg
+    FDRData(name="WSPD", dataref="sim/weather/aircraft/wind_now_speed_msc", callback=f"{DREF_SUB} 1.94384449 *"),  # 1 m/s = 1,94384449 kt, FDR expects kt
     FDRData(name="WDIR", dataref="sim/weather/aircraft/wind_now_direction_degt"),
     FDRData(name="DISA", dataref="sim/weather/region/temperatures_aloft_deg_c[0]"),  # not sure where to fetch temperature offset from ISA
     FDRData(name="REPL", dataref="sim/operation/prefs/replay_mode"),  # no FDR onreplays (sim/time/is_in_replay)
@@ -320,7 +392,7 @@ HEADER = [
 FDR_DATA = [
     FDRData(name="longitude", dataref="sim/flightmodel/position/longitude"),
     FDRData(name="latitude", dataref="sim/flightmodel/position/latitude"),
-    FDRData(name="altitude", dataref="sim/flightmodel/position/elevation", callback="${x} 3.28084 *", unit="ft"),  # m to ft, FDR expects ft
+    FDRData(name="altitude", dataref="sim/flightmodel/position/elevation", callback=f"{DREF_SUB} 3.28084 *", unit="ft"),  # m to ft, FDR expects ft
     FDRData(name="heading", dataref="sim/cockpit2/gauges/indicators/heading_electric_deg_mag_pilot"),
     FDRData(name="pitch", dataref="sim/cockpit2/gauges/indicators/pitch_electric_deg_pilot"),
     FDRData(name="roll", dataref="sim/cockpit2/gauges/indicators/roll_electric_deg_pilot"),
@@ -382,12 +454,9 @@ class PythonInterface:
             self.version = FDR_VERSION
 
     @property
-    def fdr_all_data(self) -> dict:
+    def fdr_all_data(self) -> list:
+        # all datarefs to collect at each iteration
         return self.fdr_data + self.fdr_optional
-
-    @property
-    def estimated_state(self) -> FLIGHT:
-        return self._estimated_state
 
     @property
     def chocked(self) -> bool:
@@ -399,7 +468,7 @@ class PythonInterface:
             self.debug(f"chocked: exception: {e}", force=True)
         if v is None:
             return False
-        return v != 0 if not (isinstance(v, list) or isinstance(v, tuple)) else any([t != 0 for t in v])
+        return v != 0 if not (isinstance(v, (list, tuple))) else any(t != 0 for t in v)
 
     def how_long_stopped(self) -> float:
         # returns total seconds since first stop noticed
@@ -407,20 +476,8 @@ class PythonInterface:
             return 0.0
         if self.last_stop is None:
             self.last_stop = self.system_now_datetime
-            self.debug("flight_status: stopped (2)")
+            self.debug("how_long_stopped: stopped")
         return round((self.system_now_datetime - self.last_stop).total_seconds(), 0)
-
-    def calibration(self, takeoff: bool = True):
-        move = "TAKEOFF" if takeoff else "LANDING"
-        try:
-            lat = self.fdr_data_by_name.get("latitude").value
-            lon = self.fdr_data_by_name.get("longitude").value
-            alt = self.header.get("ABGL").value
-            self.debug(f"CALI lat={lat}, lon={lon}, alt={alt}", force=True)
-            self.debug(f"COMM CALI {move} PRECISION: recording frequency={self.frequency} secs.", force=True)
-            self.debug(f"COMM CALI {move} not written to FDR file", force=True)
-        except Exception as e:
-            self.debug(f"calibration: error: {e}", force=True)
 
     @property
     def flight_status(self) -> FLIGHT:
@@ -474,6 +531,10 @@ class PythonInterface:
             self.debug(f"flight_status: exception {e}")
             print_exc()
             return FLIGHT.UNKNOWN
+
+    @property
+    def estimated_state(self) -> FLIGHT:
+        return self._estimated_state
 
     @estimated_state.setter
     def estimated_state(self, new_state: FLIGHT):
@@ -543,14 +604,26 @@ class PythonInterface:
             self.debug(f"OOOI: {oooi_msg.name} at {zulu} {m}", force=True)
         self._estimated_state = new_state
 
+    def calibration(self, takeoff: bool = True):
+        move = "TAKEOFF" if takeoff else "LANDING"
+        try:
+            lat = self.fdr_data_by_name.get("latitude").value
+            lon = self.fdr_data_by_name.get("longitude").value
+            alt = self.header.get("ABGL").value
+            self.debug(f"CALI lat={lat}, lon={lon}, alt={alt}", force=True)
+            self.debug(f"COMM CALI {move} PRECISION: recording frequency={self.frequency} secs.", force=True)
+            self.debug(f"COMM CALI {move} not written to FDR file", force=True)
+        except Exception as e:
+            self.debug(f"calibration: error: {e}", force=True)
+
     def add_elev(self, dt: datetime, alt: float):
-        # (timestamp, elevation)
+        # Add (timestamp, elevation) to limited list for regression
         self.elevs.append((dt.timestamp(), alt))
         if len(self.elevs) > REG_LEN:
             self.elevs = self.elevs[-10:]
 
     def vertical_lr(self) -> tuple:
-        # linear regression on last altitude checkpoints
+        # Linear regression on last altitude checkpoints to monitor trend (descending/ascending)
         if len(self.elevs) < 3:
             return 0.0, 0.0
         x = [a[0] for a in self.elevs]
@@ -566,6 +639,7 @@ class PythonInterface:
 
     @property
     def replay_mode(self) -> bool:
+        # Are we in replay mode
         v = self.header.get("REPL").value
         return v is not None and v != 0
 
@@ -714,14 +788,13 @@ class PythonInterface:
     def delayed_init(self):
         if self.custom_chocks is None:
             custom_chocks = self.prefs.get("chocks")
-            if custom_chocks is not None:
-                if self.custom_chocks is None or custom_chocks != self.custom_chocks.dataref:
-                    cs_fdrdata = FDRData("CHOK", dataref=custom_chocks)
-                    if cs_fdrdata.init():
-                        self.custom_chocks = cs_fdrdata
-                        self.debug(f"delayed_init: using custom chocks dataref {custom_chocks}", force=True)
-                    else:
-                        self.debug(f"delayed_init: failed to init custom chocks dataref {custom_chocks}, using default chocks dataref", force=True)
+            if custom_chocks is not None and (self.custom_chocks is None or custom_chocks != self.custom_chocks.dataref):
+                cs_fdrdata = FDRData("CHOK", dataref=custom_chocks)
+                if cs_fdrdata.init():
+                    self.custom_chocks = cs_fdrdata
+                    self.debug(f"delayed_init: using custom chocks dataref {custom_chocks}", force=True)
+                else:
+                    self.debug(f"delayed_init: failed to init custom chocks dataref {custom_chocks}, using default chocks dataref", force=True)
 
     def install_preferences(self, newprefs: dict) -> bool:
         self.trace = newprefs.get("trace", self.trace)
@@ -1000,17 +1073,29 @@ class PythonInterface:
         self.start_situation()
 
         # CSV Header
-        columns = ", ".join([d.name for d in self.fdr_all_data if "zulu" not in d.dataref])
+        columns = []
+        for d in self.fdr_all_data:
+            if "zulu" in d.dataref:
+                continue
+            if d.length < 2:
+                columns.append(d.name)
+            else:
+                for i in d.indices:
+                    columns.append(f"{d.name}[{i}]")
+        columns = ", ".join(columns)
         print("\nCOMM, UTC time, " + columns + "\n", file=self.file)
         self.debug("FDR header written")
 
     def csv_data_line(self) -> str:
+        def expand(l: list) -> list:
+            return reduce(lambda r, e: r + ([str(i) for i in e] if isinstance(e, (list, tuple)) else [str(e)]), l, [])
+
         data = ""
         if self.version == 3:
             data = f"DATA, {round((self.simulator_zulu_datetime - self.start_time).total_seconds(), 1)}"
         elif self.version == 4:
-            data = self.simulator_zulu_datetime.strftime("%H:%M:%S.%f, ")
-        data = data + ",".join([f"{v}" for v in [d.value for d in self.fdr_all_data if "zulu" not in d.dataref]])
+            data = self.simulator_zulu_datetime.strftime("%H:%M:%S.%f")
+        data = data + "," + ",".join(expand([d.value for d in self.fdr_all_data if "zulu" not in d.dataref]))
         return data + "\n"
 
     @property

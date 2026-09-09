@@ -99,7 +99,7 @@ Collected data is described by the following fields:
   - `dataref`: Name of dataref whose value is part of the data record. Mandatory.
   - `units`: Information field of dataref value unit. Saved as a comment in the header of the record file. Optional.
   - `factor`: Convertion factor (float value) used by FDR DREF parameter. Optional.
-  - `callback`: Reverse polish notation expression. ${x} is replaced with the dataref value. Optional.
+  - `callback`: Reverse polish notation expression. `${x}` is replaced with the dataref value. Optional.
 
 Callback expression is very limited in size and capabilities.
 Their goal is a provide an easy mechanism to alter raw dataref values to meaningful record value
@@ -107,15 +107,54 @@ with minimal modification.
 
 Typical, unit adjustment expressions like
 
+ - `${x} 0.3048 *` : convert ft to m
+ - `${x} 32 - 1.8 /` : convert farenheit to celsius
+ - `${x} 0 round 0 eq` : returns 1.0 when rounds to zero
+
+In the above expression `${x}` is the raw dataref value.
+
+This scheme is a alternate, more sophisticated method than the built-in FDR DREF factor parameter.
+
+### Experimental Feature for Array datarefs
+
+It is possible to list dataref with a python `slice()` syntax.
+
 ```
-${x} 0.3048 * # convert ft to m
-${x} 32 - 1.8 / # convert farenheit to celsius
-${x} 0 round 0 eq # returns 1.0 when rounds to zero
+  - name: eng_n1
+    dataref: sim/flightmodel/engine/ENGN_N1_[0:4]
 ```
 
-In the above expression ${x} is the raw dataref value.
+Range `0:4` is called a python array _slice_ and follow a specific syntax.
 
-It is a alternate, more sophisticated method to FDR DREF factor parameter.
+The above slice is equivalent to
+
+```
+  - name: eng_n1[0]
+    dataref: sim/flightmodel/engine/ENGN_N1_[0]
+  - name: eng_n1[1]
+    dataref: sim/flightmodel/engine/ENGN_N1_[1]
+  - name: eng_n1[2]
+    dataref: sim/flightmodel/engine/ENGN_N1_[2]
+  - name: eng_n1[3]
+    dataref: sim/flightmodel/engine/ENGN_N1_[3]
+```
+
+Alternatively, it is possible to list indices of interest like so:
+
+```
+  - name: eng_n1
+    dataref: sim/flightmodel/engine/ENGN_N1_[1,3]
+```
+
+Index list must be a comma separated list of integer value.
+
+
+The drawback of these slices or multi-index selection
+is that all values of the dataref array are fetched
+during each data collection, but only those values that are requested are returned.
+
+
+*This is an experimental feature and may not work as expected. Use with caution.*
 
 
 ### Default Values
@@ -161,7 +200,7 @@ Flight Data Recorder is a X-Plane plugin written in python.
 It needs XPPython3 plugin to run.
 
 Install `PI_fdr.py` file in `<X-Plane 12 Folder>/Resources/plugins/PythonPlugins`.
-Reload scripts in XPPython3 through the Plugin menu entry.
+Reload scripts in [XPPython3](https://xppython3.readthedocs.io/en/latest/) through the Plugin menu entry.
 
 On first start, the script may download missing python package like Yaml.
 When completed, simply reload XPPython3 script again.
@@ -170,14 +209,14 @@ When completed, simply reload XPPython3 script again.
 ## Reader
 
 There is a compagnon script `fdr_reader.py` that reads a FDR record file and generates
-a GeoJSON file that can be viewed on geojson.io for example.
+a GeoJSON file that can be viewed on geojson.io for example. It also generate a CSV file.
 
-Column data is presented as a list of GeoJSON properties along with (3D) position.
+In the GeoJSON file, column data is presented as a list of feature properties along with (3D) Point position.
 
 
 ## Viewer
 
-There is a compagnon web page `frd_viewer.html` to display FDR file content
+There is a compagnon web page `frd_viewer.html` to display a GeoJSON formatted FDR file
 in a simple, basic map and charting page.
 
 The viewer is under development.
