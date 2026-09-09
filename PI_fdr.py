@@ -45,6 +45,7 @@ CHANGELOG
 1.0.0 07-SEP-2026 Initial reelase
 1.1.0 07-SEP-2026 Adjusted callbacks expression to use RPN rather than python eval of lambda expression (too dangerous for production release)
 1.2.0 08-SEP-2026 Added python slice() dataref array range parsing like [:-6] and index list like [1,3,5]
+1.2.1 08-SEP-2026 Added option to change auto stop timeout (default to 10 minutes)
 
 """
 
@@ -237,21 +238,25 @@ class FDRData:
                 e0 = None if not has_slice.group("e") or has_slice.group("e") == "" else int(has_slice.group("e"))
                 i0 = None if not has_slice.group("i") or has_slice.group("i") == "" else int(has_slice.group("i"))
                 self.pyslice = slice(s0, e0, i0)
-                print(f"{NAME} {VERSION}::FDRData.init: array slice currently experimental: {self.name} {self.dataref}")
+                # print(f"{NAME} {VERSION}::FDRData.init: array slice currently experimental: {self.name} {self.dataref}")
                 self.dref = find_dataref(whole_dref)
-                print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, {self.pyslice} -> {self.indices})")
+                # print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, {self.pyslice} -> {self.indices})")
+                print(f"{NAME} {VERSION}::FDRData.init: recording {whole_dref}[{self.indices}]) *** EXPERIMENTAL/SLICE")
                 return True
             if "[" in whole_dref:
                 s = whole_dref[whole_dref.index("[") + 1 : whole_dref.index("]")]
                 if "," in s:
                     self._indices = {int(i) for i in s.replace(" ", "").split(",")}
                     whole_dref = whole_dref[:whole_dref.index("[")]
+                    # print(f"{NAME} {VERSION}::FDRData.init: array indices currently experimental: {self.name} {self.dataref}")
                     self.dref = find_dataref(whole_dref)
-                    print(f"{NAME} {VERSION}::FDRData.init: array indices currently experimental: {self.name} {self.dataref}")
-                    print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, '{s}' -> {self._indices}")
-                else:
-                    print(f"{NAME} {VERSION}::FDRData.init: unique index: {whole_dref}")
+                    # print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, '{s}' -> {self._indices}")
+                    print(f"{NAME} {VERSION}::FDRData.init: recording {whole_dref}[{self._indices}]) *** EXPERIMENTAL/INDEXLIST")
+                    return True
+                # else:
+                #     print(f"{NAME} {VERSION}::FDRData.init: unique index: {whole_dref}")
             self.dref = find_dataref(whole_dref)
+            print(f"{NAME} {VERSION}::FDRData.init: recording {whole_dref}")
             return self.dref is not None
         except Exception as e:
             print(f"{NAME} {VERSION}::FDRData.init: {whole_dref} init failed: {e}")
@@ -310,6 +315,19 @@ class FDRData:
         return 1
 
     @property
+    def value_length(self) -> int:
+        # return this FDRData value length, 1 for scalar, 0 if None
+        if self.dref is None:
+            print(f"{NAME} {VERSION}::FDRData.length: {self.dataref} no dref")
+            return 0
+        v = self.value
+        if v is None:
+            return 0
+        if isinstance(v, (list, tuple, dict)):
+            return len(v)
+        return 1
+
+    @property
     def indices(self) -> set:
         if self.dref is None:
             print(f"{NAME} {VERSION}::FDRData.indices: {self.dataref} no dref")
@@ -354,7 +372,7 @@ class FDRData:
                 if "[0]" in self.dataref:  # bug XPPython3, returns while array for a[0] instead of scalar value
                     print(f"{NAME} {VERSION}::FDRData.value: workaround for index 0 of array ({self.dataref}={v[0]} (xppython3={xp.VERSION})")
                     v = v[0]
-                if isinstance(v, (list, tuple)):
+                elif isinstance(v, (list, tuple)):
                     if self._indices is not None:
                         return [self.applyCallback(v[i]) for i in self._indices]
                     if self.pyslice is not None:
@@ -797,6 +815,7 @@ class PythonInterface:
                     self.debug(f"delayed_init: failed to init custom chocks dataref {custom_chocks}, using default chocks dataref", force=True)
 
     def install_preferences(self, newprefs: dict) -> bool:
+        global AUTOSTOP_THRESHOLD
         self.trace = newprefs.get("trace", self.trace)
         desc = newprefs.get("description")
         if desc is not None:
@@ -809,6 +828,7 @@ class PythonInterface:
         self.arch = newprefs.get("fdr_arch", FDR_ARCH)
         if self.arch not in [FDR_ARCH, "IBM"]:
             self.arch = FDR_ARCH
+        AUTOSTOP_THRESHOLD = newprefs.get("stop_timeout", 600)
         custom_chocks = newprefs.get("chocks")
         if custom_chocks is not None:
             if self.custom_chocks is None or custom_chocks != self.custom_chocks.dataref:
@@ -1077,7 +1097,7 @@ class PythonInterface:
         for d in self.fdr_all_data:
             if "zulu" in d.dataref:
                 continue
-            if d.length < 2:
+            if d.value_length < 2:
                 columns.append(d.name)
             else:
                 for i in d.indices:

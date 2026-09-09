@@ -111,7 +111,7 @@ Typical, unit adjustment expressions like
  - `${x} 32 - 1.8 /` : convert farenheit to celsius
  - `${x} 0 round 0 eq` : returns 1.0 when rounds to zero
 
-In the above expression `${x}` is the raw dataref value.
+In the above expression `${x}` is the raw _numeric_ dataref value.
 
 This scheme is a alternate, more sophisticated method than the built-in FDR DREF factor parameter.
 
@@ -161,10 +161,14 @@ during each data collection, but only those values that are requested are return
 
 Without preference file, FDR generates Version 4 file for APPLE architecture.
 The recording frequency is 10 seconds, and reporting frequency occurs every 200 records.
-It only record mandatory data (position, attitude) and header fields once.
+(Reporting is written in X-Plane log.txt file and is useful to monitor that FDR is logging
+events in the FDR file.)
+Without preference file, FDR only record mandatory header fields once,
+and mandatory data (time, position, attitude, total 7 values, see below) every 10 seconds.
+
 It is a lightweight process that has no impact on the frame rate.
 
-This occurs automatically without user interaction.
+When the plugin is installed, this occurs automatically without user interaction.
 
 
 ### Mandatory Data
@@ -197,10 +201,10 @@ one column per additional dataref.
 ## Installation
 
 Flight Data Recorder is a X-Plane plugin written in python.
-It needs XPPython3 plugin to run.
+It needs [XPPython3](https://xppython3.readthedocs.io/en/latest/) X-Plane plugin to run.
 
 Install `PI_fdr.py` file in `<X-Plane 12 Folder>/Resources/plugins/PythonPlugins`.
-Reload scripts in [XPPython3](https://xppython3.readthedocs.io/en/latest/) through the Plugin menu entry.
+Reload scripts in XPPython3 through the Plugin menu entry.
 
 On first start, the script may download missing python package like Yaml.
 When completed, simply reload XPPython3 script again.
@@ -209,9 +213,10 @@ When completed, simply reload XPPython3 script again.
 ## Reader
 
 There is a compagnon script `fdr_reader.py` that reads a FDR record file and generates
-a GeoJSON file that can be viewed on geojson.io for example. It also generate a CSV file.
+  - a GeoJSON file that can be viewed on geojson.io for example,
+  - a CSV file with all data.
 
-In the GeoJSON file, column data is presented as a list of feature properties along with (3D) Point position.
+In the GeoJSON file, FDR data is added as a list of feature properties along with (3D) Point position.
 
 
 ## Viewer
@@ -221,14 +226,14 @@ in a simple, basic map and charting page.
 
 The viewer is under development.
 
+(It may later read CSV files and/or `.fdr` file directly.)
+
 
 ## Troubleshooting
 
 FDR logs a few messages in X-Plane `log.txt` file.
 
-If constant TRACE is set to True in the `PI_fdr.py` script file, more information is produced.
-
-The script may not work on X-Plane release 11.
+The script may not work on X-Plane release 11 as it depends on newer XPPython3 features.
 
 
 # See Also
