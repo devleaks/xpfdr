@@ -46,6 +46,7 @@ CHANGELOG
 1.1.0 07-SEP-2026 Adjusted callbacks expression to use RPN rather than python eval of lambda expression (too dangerous for production release)
 1.2.0 08-SEP-2026 Added python slice() dataref array range parsing like [:-6] and index list like [1,3,5]
 1.2.1 08-SEP-2026 Added option to change auto stop timeout (default to 10 minutes)
+1.3.0 08-SEP-2026 Added Airbus ECAM flight phase detection on ToLiss Airbus aircrafts.
 
 """
 
@@ -53,6 +54,7 @@ import os
 import inspect
 import re
 import math
+from types import new_class
 import tomllib
 from functools import reduce
 from datetime import datetime, timedelta, timezone
@@ -61,12 +63,14 @@ from typing import Callable, Any
 from dataclasses import dataclass
 from enum import IntEnum
 
+
 try:
     import xp
     from XPPython3.utils import xp_pip
     from XPPython3.utils.datarefs import find_dataref
 except ModuleNotFoundError:
     print("not using X-Plane")
+
 
 # Will try to remove Yaml and favor TOML later
 #
@@ -92,7 +96,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 SHOW_TRACE = False
 NAME = "FDR"
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 DESCRIPTION = "Flight Data Recordder"
 
 FDR_MENU = "Start or stop FDR"
@@ -106,16 +110,19 @@ FDR_ARCH = "APPLE"  # "APPLE" or "IBM"
 
 WRITE_FREQUENCY = 10.0  # seconds
 REPORT_FREQUENCY = 100  # number of writes
-
 AUTOSTART = True
 AUTOSTART_FREQUENCY = 10.0  # secs
 AUTOSTART_THRESHOLD = 2.0  # m/s
 AUTOSTOP_THRESHOLD = 600.0  # seconds
-TAKEOFF_ELEV = 10.0  # m
-LANDING_ELEV = 50.0  # m
-REG_LEN = 10
+
 USE_CALLBACK = False  # use at your own risk
 DREF_SUB = "${x}"
+REG_LEN = 10
+
+# General thresholds
+MIN_SPEED = 1.0  # m/s, below that threshold: stopped
+MIN_LIFTOFF_ABGL = 10.0  # m  > means in air, ABGL is CG of aircraft, != 0 when on ground.
+MAX_LANDING_ABGL = 30.0  # m  < means on the ground (almost)
 
 
 class RPC:
@@ -191,19 +198,19 @@ class RPC:
         return stack if return_stack else stack.pop()
 
 
+class OOOI(IntEnum):
+    OUT = 0
+    OFF = 1
+    ON = 2
+    IN = 3
+
+
 class FLIGHT(IntEnum):
     UNKNOWN = 0
     ON_BLOCK = 1  # assuming parked at gate, jetway, parking, etc.
     STOPPED = 2  # and not on blocks, ex. stoppped on taxiway, holding position...
     MOVING_ON_GROUND = 3
     IN_AIR = 4
-
-
-class OOOI(IntEnum):
-    OUT = 0
-    OFF = 1
-    ON = 2
-    IN = 3
 
 
 # Helper data class container
@@ -241,7 +248,7 @@ class FDRData:
                 # print(f"{NAME} {VERSION}::FDRData.init: array slice currently experimental: {self.name} {self.dataref}")
                 self.dref = find_dataref(whole_dref)
                 # print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, {self.pyslice} -> {self.indices})")
-                print(f"{NAME} {VERSION}::FDRData.init: recording {whole_dref}[{self.indices}]) *** EXPERIMENTAL/SLICE")
+                print(f"{NAME} {VERSION}::FDRData.init: registered {whole_dref}[{self.indices}]) *** EXPERIMENTAL/SLICE")
                 return True
             if "[" in whole_dref:
                 s = whole_dref[whole_dref.index("[") + 1 : whole_dref.index("]")]
@@ -251,12 +258,12 @@ class FDRData:
                     # print(f"{NAME} {VERSION}::FDRData.init: array indices currently experimental: {self.name} {self.dataref}")
                     self.dref = find_dataref(whole_dref)
                     # print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, '{s}' -> {self._indices}")
-                    print(f"{NAME} {VERSION}::FDRData.init: recording {whole_dref}[{self._indices}]) *** EXPERIMENTAL/INDEXLIST")
+                    print(f"{NAME} {VERSION}::FDRData.init: registered {whole_dref}[{self._indices}]) *** EXPERIMENTAL/INDEXLIST")
                     return True
                 # else:
                 #     print(f"{NAME} {VERSION}::FDRData.init: unique index: {whole_dref}")
             self.dref = find_dataref(whole_dref)
-            print(f"{NAME} {VERSION}::FDRData.init: recording {whole_dref}")
+            print(f"{NAME} {VERSION}::FDRData.init: registered {whole_dref}")
             return self.dref is not None
         except Exception as e:
             print(f"{NAME} {VERSION}::FDRData.init: {whole_dref} init failed: {e}")
@@ -389,7 +396,8 @@ class FDRData:
 HEADER = [
     FDRData(name="ACFT", dataref="sim/aircraft/view/acf_relative_path"),
     FDRData(name="TAIL", dataref="sim/aircraft/view/acf_tailnum"),
-    # FDRData(name="ICAO", dataref="sim/aircraft/view/acf_ICAO"),
+    FDRData(name="ICAO", dataref="sim/aircraft/view/acf_ICAO"),
+    FDRData(name="AUTH", dataref="sim/aircraft/view/acf_author"),
     FDRData(name="DMON", dataref="sim/cockpit2/clock_timer/current_month"),
     FDRData(name="DDAY", dataref="sim/cockpit2/clock_timer/current_day"),
     FDRData(name="SEAL", dataref="sim/weather/region/sealevel_pressure_pas", callback=f"{DREF_SUB} 0.00029529980164712 *"),  # 1 pascal = 0.00029529980164712 in hg
@@ -416,6 +424,336 @@ FDR_DATA = [
     FDRData(name="roll", dataref="sim/cockpit2/gauges/indicators/roll_electric_deg_pilot"),
 ]
 # Through preferences, user can define a set of fdr_optional datarefs.
+
+# Data needed to estimate flight phases
+FDR_FLIGHT_PHASE = [
+]
+
+
+# #############################################################################
+#
+#
+class AIRBUS_PHASE(IntEnum):
+    OFF = 0  # cold and dark
+    ELECPOWER = 1  # coffie machine available
+    FIRSTENGSTARTED = 2  # expresso, capuccino possible
+    FIRSTENGTOPOWER = 3
+    ACCEL80KT = 4
+    LIFTOFF = 5
+    ABOVE1500FT = 6
+    BELOW800FT = 7
+    TOUCHDOWN = 8
+    DECEL80KT = 9
+    SECONDENGSHUTDOWN = 10
+    FIVEMINAFTER = 11
+
+
+@dataclass
+class FlightPhase:
+    phase: AIRBUS_PHASE
+    when:datetime
+
+# Airbus Flight Phase specific thresholds
+# S.I., for A321, may need adjustment on acf model, engines, etc. We'll see later
+S80KT = 80 * 0.5144444  # m/s
+FAST = 500  # 1 Mach = 340.29m/s, sea level
+A1500FT = 1500 * 0.3048  # m
+A800FT = 800 * 0.3048  # m
+MIN_ABGL = 10.0  # m, must take into account aircraft CG elev ABGL, make higher for A380
+ENG_PWR = 1500 # Thrust in N to assume engine to power
+ENG_OFF = 10 # Thrust in N, minimal to assume engine started
+FIVEMIN = 300.0  # secs
+
+
+class AirbusFlightPhase:
+    """Airbus ECAM Flight Phase detection
+    For this optional class to work, the following datarefs are necessary (examples fdr.prf file):
+
+        frequency: 1
+        report_frequency: 100
+        chocks: AirbusFBW/Chocks
+        fdr_optional:
+          - name: ground_speed
+            dataref: sim/flightmodel/position/groundspeed
+            unit: m/s
+          - name: ecam_flight_phase
+            dataref: AirbusFBW/ECAMFlightPhase
+          - name: elec_pwr
+            dataref: sim/cockpit2/switches/avionics_power_on
+          - name: eng_pwr
+            dataref: AirbusFBW/EngineThrust_N
+    """
+
+    def __init__(self, dt: datetime, datarefs: dict, alt_reg: Callable, spd_reg: Callable, airtime: Callable) -> None:
+        self.AIRBUS_PROCESS = {
+            AIRBUS_PHASE.OFF: self.test_elecpwr,
+            AIRBUS_PHASE.ELECPOWER: self.test_engon,
+            AIRBUS_PHASE.FIRSTENGSTARTED: self.test_engpwr,
+            AIRBUS_PHASE.FIRSTENGTOPOWER: self.test_accel80kt,
+            AIRBUS_PHASE.ACCEL80KT: self.test_liftoff,
+            AIRBUS_PHASE.LIFTOFF: self.test_alt1500ft,
+            AIRBUS_PHASE.ABOVE1500FT: self.test_alt800ft,
+            AIRBUS_PHASE.BELOW800FT: self.test_touchdown,
+            AIRBUS_PHASE.TOUCHDOWN: self.test_decel80kt,
+            AIRBUS_PHASE.DECEL80KT: self.test_shutdown,
+            AIRBUS_PHASE.SECONDENGSHUTDOWN: self.test_after,
+            AIRBUS_PHASE.FIVEMINAFTER: self.test_off,
+        }
+        self.trace = True # SHOW_TRACE
+        self._sequence = []
+        self._inited = False
+        self._e = -1
+        self.datarefs = datarefs
+        self.alt_reg = alt_reg
+        self.spd_reg = spd_reg
+        self.had_air_time = airtime
+        self.current = FlightPhase(phase=AIRBUS_PHASE.OFF, when=dt)
+        self._sequence.append(self.current)
+        if self.valid:
+            self.debug("valid", force=True)
+        else:
+            self.debug("invalid, may be some dataref missing?", force=True)
+        self.current = self.flight_phase(dt=dt)
+
+    @property
+    def valid(self) -> bool:
+        needed = [
+            "AirbusFBW/ECAMFlightPhase",  # ecam_flight_phase, not formally required, but used to test ToLiss
+            "AirbusFBW/EngineThrust_N",  # eng_pwr
+            "sim/cockpit2/switches/avionics_power_on",  # elec_pwr
+            "sim/flightmodel/position/groundspeed",  # ground_speed
+            "sim/flightmodel2/position/y_agl",  # ABGL
+        ]
+        test = [d for d in needed if d not in [k.dataref for k in self.datarefs.values()]]
+        if len(test) > 0:
+            self.debug(f"missing dataref {test}, invalid", force=True)
+            return False
+        return True
+
+    def speed_regression_reliable(self) -> bool:
+        r, e, cnt, diff = self.speed_lr()
+        return cnt > 4
+
+    def altitude_regression_reliable(self) -> bool:
+        r, e, cnt, diff = self.vertical_lr()
+        return cnt > 4
+
+    def debug(self, message, force: bool = False):
+        # ideal message is function_name: message
+        if self.trace or force:
+            print(f"{NAME} {VERSION}::AirbusFlightPhase:{message}")
+
+    def flight_phase(self, dt: datetime) -> FlightPhase:
+        def set_inited(message) -> FlightPhase:
+            self._inited = True
+            self.debug(f"flight_phase/init: {message}")
+            self.debug(f"flight_phase: initialized to {self.current.phase.name}", force=True)
+            return self.current
+
+        def next_phase():
+            new_phase = FlightPhase(phase=AIRBUS_PHASE((self.current.phase.value + 1) % 12), when=dt)
+            msg = "" if self._inited else "flight_phase/init: "
+            self.debug(f"{msg}{self.current.phase.name} > {new_phase.phase.name} at {dt.replace(microsecond=0)}", force=True)
+            self._sequence.append(new_phase)
+            self.current = new_phase
+
+        def set_phase(phase: AIRBUS_PHASE, message) -> FlightPhase:
+            new_phase = FlightPhase(phase=phase, when=dt)
+            self.debug(f"flight_phase/init: SET > {new_phase.phase.name} at {dt.replace(microsecond=0)}", force=True)
+            self._sequence.append(new_phase)
+            self.current = new_phase
+            return set_inited(message)
+
+        if not self.valid:
+            self.debug("flight_phase: not valid", force=True)
+            return self.current
+
+        # This is a test to see if ToLiss datarefs are available with reliable values
+        # Fails during initialization of aircraft.
+        ecam = self.ecam_flight_phase
+        if ecam == -1:
+            self.debug("flight_phase: not ready")
+            return self.current
+
+        change_phase = self.AIRBUS_PROCESS[self.current.phase]
+        # self.debug(f"flight_phase: {self.current.phase.name}, test is {test}")
+        if change_phase():
+            next_phase()
+            return self.flight_phase(dt=dt)
+
+        # ####################@
+        #
+        # Lot of work to determine situation and deduce flight phase.
+        # Not 100% reliable.
+        #
+        if not self._inited:  # need to check more... note: WE have no statistical regression value
+            self.debug(f"flight_phase/init:: not inited, current={self.current.phase.name}, air time={self.had_air_time()}")
+            if self.current.phase == AIRBUS_PHASE.FIRSTENGSTARTED and self.test_engpwr():
+                next_phase()
+                return self.flight_phase(dt=dt)
+            if self.current.phase == AIRBUS_PHASE.FIRSTENGTOPOWER and self.get_value("ground_speed", 0) > S80KT:
+                next_phase()
+                return self.flight_phase(dt=dt)
+            if self.current.phase == AIRBUS_PHASE.FIRSTENGTOPOWER:
+                ## GREY MATTER: Less than 80KT. Stopped?
+                if self.get_value("ground_speed", FAST) < MIN_SPEED:  # Engine on and stopped
+                    # are we stopped before the flight or after the flight?
+                    if self.had_air_time():
+                        return set_phase(phase=AIRBUS_PHASE.DECEL80KT, message="stopped and had air time")  # wait for engine to stop
+                    return set_inited("stopped, no air time")  #  wait for movement
+                ## DARK GREY MATTER: Less than 80KT and not stopped: Accelerating or decelerating?
+                if self.speed_regression_reliable:
+                    if self.spd_reg()[0] > 0.0:  # taxiing or accelerating, we will eventually reach 80kt
+                        return set_inited("not stopped, accelerating")
+                    # Decelerating: taxiing or end of roll?
+                    if self.had_air_time():  # we landed, we are aleady under 80kt
+                        return set_phase(phase=AIRBUS_PHASE.DECEL80KT, message="not stopped, decelerating, had air time")
+                # We cannot decide now, we are not _inited, wait for more speed stats
+                self.debug("flight_phase/init:: speed regression unreliable")
+                return self.current
+
+            if self.current.phase == AIRBUS_PHASE.ACCEL80KT and self.get_value("ABGL", 0) > MIN_ABGL:
+                next_phase()
+                return self.flight_phase(dt=dt)
+
+            if self.current.phase == AIRBUS_PHASE.ACCEL80KT and self.had_air_time(): # just landed
+                return set_phase(phase=AIRBUS_PHASE.LANDING, message=f"had air time, below {MIN_ABGL}m, above 80kt")
+
+            if self.current.phase == AIRBUS_PHASE.LIFTOFF and self.get_value("ABGL", 0) > A1500FT:
+                next_phase()
+                return set_inited("flying above 1500FT") # we're above 1500ft, we cannot say much now
+
+            if self.current.phase == AIRBUS_PHASE.LIFTOFF:
+                ## GREY MATTER: Less than 1500FT, but in the air...
+                if self.altitude_regression_reliable:
+                    if self.alt_reg()[0] > 0:  # climbing, we will eventually reach >1500ft
+                        return set_inited("lifted off, climbing")
+                    # Descending
+                    if self.get_value("ABGL", 0) > A800FT:  # we're between 1500 and 800ft, descending, we will eventually reach <800ft
+                        return set_phase(phase=AIRBUS_PHASE.ABOVE1500FT, message="descending, between 800 and 1500ft")
+                    # Just touching down
+                    if self.get_value("ABGL", A1500FT) < MIN_ABGL:  # descending, we're below MAX_LANDING_ABGL, we'll touch down
+                        return set_phase(phase=AIRBUS_PHASE.LANDING, message=f"descending, below {MIN_ABGL}")
+                    if self.get_value("ABGL", A1500FT) < A800FT:  # we're between 800ft and MAX_LANDING_ABGL, descending, we already passed 800ft going down
+                        return set_phase(phase=AIRBUS_PHASE.BELOW800FT, message=f"descending, between 800 and {MIN_ABGL}")
+                self.debug("flight_phase/init:: altitude regression unreliable")
+                return self.current
+
+            if not self.test_engpwr() and self.had_air_time():
+                return set_phase(phase=AIRBUS_PHASE.SECONDENGSHUTDOWN, message="no power, had air time, cooling down 5 min")  # wait for five minutes
+
+            if self.current.phase == AIRBUS_PHASE.ABOVE1500FT and self.get_value("ABGL", A1500FT) < A800FT:
+                next_phase()
+                return self.flight_phase(dt=dt)
+            if self.current.phase == AIRBUS_PHASE.BELOW800FT and self.get_value("ABGL", A1500FT) < MIN_ABGL:
+                next_phase()
+                return self.flight_phase(dt=dt)
+            if self.current.phase == AIRBUS_PHASE.TOUCHDOWN and self.get_value("ground_speed", FAST) < S80KT:
+                next_phase()
+                return self.flight_phase(dt=dt)
+            if self.current.phase == AIRBUS_PHASE.DECEL80KT and self.test_shutdown():
+                next_phase()
+                return self.flight_phase(dt=dt)
+            if self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN and self.test_off():
+                next_phase()
+                return self.flight_phase(dt=dt)
+            set_inited("all conditions failed")
+        #
+        # ####################@
+
+        return self.current
+
+    def get_value(self, name: str, default: Any) -> int | float | list:
+        d = self.datarefs.get(name)
+        if d is None:
+            self.debug(f"get_value: dataref {name} not found", force=True)
+            return default
+        return d.value
+
+    @property
+    def ecam_flight_phase(self) -> int:
+        return self.get_value("ecam_flight_phase", -1)
+
+    def test_elecpwr(self) -> bool:
+        self.debug(f"test_elecpwr: {self.get_value('elec_pwr', 0)}")
+        return self.get_value("elec_pwr", 0) == 1
+
+    def test_engon(self) -> bool:
+        engs = self.get_value("eng_pwr", [])
+        self.debug(f"test_engon: {engs} #{self._e} > {ENG_OFF}")
+        if len(engs) == 0:
+            return False
+        for i in range(len(engs)):
+            e = engs[i]
+            if e > ENG_OFF:
+                if self._e == -1: # remember which one starting
+                    self._e = i
+                    self.debug(f"test_engon: engine #{self._e} started")
+                return True
+        return False
+
+    def test_engpwr(self) -> bool:
+        engs = self.get_value("eng_pwr", [])
+        self.debug(f"test_engpwr: {engs} #{self._e} > {ENG_PWR}")
+        if len(engs) == 0:
+            return False
+        if self._e > -1 and self._e < len(engs):  # the one starting
+            self.debug(f"test_engpwr: engine #{self._e} available")
+            return engs[self._e] > ENG_PWR
+        # else, test them all and ok if at least one at power
+        for e in engs:
+            if e > ENG_PWR:
+                self.debug("test_engpwr: engine available")
+                return True
+        return False
+
+    def test_accel80kt(self) -> bool:
+        self.debug(f"test_accel80kt: {self.spd_reg()} {self.get_value('ground_speed', 0.0)} > {S80KT}")
+        return self.spd_reg()[0] > 0 and self.get_value("ground_speed", 0) > S80KT
+
+    def test_liftoff(self) -> bool:
+        self.debug(f"test_liftoff: {self.alt_reg()} {self.get_value('ABGL', 0.0)} > { 2* MIN_ABGL}")
+        return self.alt_reg()[0] > 0 and self.get_value("ABGL", 0) > MIN_ABGL * 2
+
+    def test_alt1500ft(self) -> bool:
+        self.debug(f"test_alt1500ft: {self.alt_reg()} {self.get_value('ABGL', 0.0)} > {A1500FT}")
+        return self.alt_reg()[0] > 0 and self.get_value("ABGL", 0) > A1500FT
+
+    def test_alt800ft(self) -> bool:
+        self.debug(f"test_alt800ft: {self.alt_reg()} {self.get_value('ABGL', A1500FT)} < {A800FT}")
+        return self.alt_reg()[0] < 0 and self.get_value("ABGL", 0) < A800FT
+
+    def test_touchdown(self) -> bool:
+        self.debug(f"test_touchdown: {self.get_value('ABGL', A1500FT)} < {MIN_ABGL}")
+        return self.get_value("ABGL", A1500FT) < MIN_ABGL
+
+    def test_decel80kt(self) -> bool:
+        self.debug(f"test_decel80kt: {self.spd_reg()} {self.get_value('ground_speed', 100.0)} < {S80KT}")
+        return self.spd_reg()[0] < 0 and self.get_value("ground_speed", FAST) < S80KT
+
+    def test_shutdown(self) -> bool:
+        engs = self.get_value("eng_pwr", [])
+        self.debug(f"test_shutdown: {engs} < {ENG_OFF}")
+        if len(engs) < 2:
+            return False
+        offs = [e < ENG_OFF for e in engs]
+        if all(offs):
+            self._e = -1
+            return True
+        return False
+
+    def test_after(self) -> bool:
+        how_long = (datetime.now(tz=timezone.utc) - self.current.when).total_seconds()
+        self.debug(f"test_after: {self.current.phase.name} {how_long} > {FIVEMIN}")
+        return self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN and how_long > FIVEMIN
+
+    def test_off(self) -> bool:
+        self.debug(f"test_off: {self.get_value('elec_pwr')}")
+        return self.get_value("elec_pwr", 1) == 0
+#
+#
+# #############################################################################
+
 
 
 class PythonInterface:
@@ -444,13 +782,13 @@ class PythonInterface:
 
         self.header = {d.name: d for d in HEADER}  # collected once
         self.fdr_data = FDR_DATA
-        self.fdr_data_by_name = {d.name: d for d in self.fdr_data}
 
         self.custom_chocks = None
 
         # Working variables
         self._estimated_state = FLIGHT.UNKNOWN
-        self.had_air_time: bool | None = None
+        self._afp = None
+        self._had_air_time: bool | None = None
         self.last_agl = 0
         self.chocks_removed = None
         self.oooi = {i: None for i in range(len(OOOI))}
@@ -459,6 +797,7 @@ class PythonInterface:
         self.last_stop = None
         self.writes = 0
         self.elevs = []
+        self.speeds = []
 
         # Can be changed in preferences
         self.fdr_info = []
@@ -477,6 +816,10 @@ class PythonInterface:
         return self.fdr_data + self.fdr_optional
 
     @property
+    def fdr_data_by_name(self) -> dict:
+        return {d.name: d for d in self.fdr_all_data}
+
+    @property
     def chocked(self) -> bool:
         c = self.header.get("CHOK") if self.custom_chocks is None else self.custom_chocks
         v = None
@@ -487,6 +830,9 @@ class PythonInterface:
         if v is None:
             return False
         return v != 0 if not (isinstance(v, (list, tuple))) else any(t != 0 for t in v)
+
+    def had_air_time(self) -> bool:
+        return self._had_air_time
 
     def how_long_stopped(self) -> float:
         # returns total seconds since first stop noticed
@@ -502,11 +848,15 @@ class PythonInterface:
         # Are we moving? Are we in the air?
         # Are we moving?
         try:
-            move = self.header.get("MOVE").value
-            if move is None:  # we don't know...
+            if self._afp is not None:
+                dummy = self._afp.flight_phase(dt=self.simulator_zulu_datetime)
+
+            gndsp = self.header.get("MOVE").value
+            if gndsp is None:  # we don't know...
                 self.debug("flight_status: no movement info")
                 return FLIGHT.UNKNOWN
-            if move < AUTOSTART_THRESHOLD:
+            self.add_speed(self.system_now_datetime, gndsp)
+            if gndsp < AUTOSTART_THRESHOLD:
                 if self.chocked:
                     self.debug("flight_status: on chocks")
                     return FLIGHT.ON_BLOCK
@@ -521,25 +871,25 @@ class PythonInterface:
                 self.last_stop = None
             # Are we in the air?
             elev = self.header.get("ABGL").value
-            if elev is None or elev < TAKEOFF_ELEV:
+            if elev is None or elev < MIN_LIFTOFF_ABGL:
                 return FLIGHT.MOVING_ON_GROUND
             # Yes we are in the air...
-            if not self.had_air_time:
-                self.had_air_time = True
+            if not self.had_air_time():
+                self._had_air_time = True
                 self.debug("flight_status: air time")
 
             # Additional: Are we taking of or landing?
             # @todo: possible dynamic adjustment of FDR frequency:
             #        less in cruise, more close to the ground
             self.add_elev(self.system_now_datetime, elev)
-            r, e = self.vertical_lr()
+            r, e, cnt, diff = self.vertical_lr()
             t = self.elevs[-1][0] - self.elevs[0][0]
             # self.debug(f"flight_status: vertical regression: {round(r, 2)} m/s ({round(r*196.85039, 0)} ft/m) (delta t={round(t, 2)} secs, {REG_LEN} pts), err={round(e, 2)}")
-            if elev < LANDING_ELEV and r < 0.0:
+            if elev < MAX_LANDING_ABGL and r < 0.0:
                 self.calibration(takeoff=False)
                 self.debug("flight_status: landing")
                 # self.frequency = 1.0
-            elif self.estimated_state == FLIGHT.MOVING_ON_GROUND and elev > TAKEOFF_ELEV and r > 0.0:
+            elif self.estimated_state == FLIGHT.MOVING_ON_GROUND and elev > MIN_LIFTOFF_ABGL and r > 0.0:
                 self.calibration(takeoff=True)
                 self.debug("flight_status: takeoff")
                 # self.frequency = 5.0
@@ -575,7 +925,7 @@ class PythonInterface:
             if was(FLIGHT.UNKNOWN):
                 self._estimated_state = new_state
             elif was(FLIGHT.STOPPED) or was(FLIGHT.MOVING_ON_GROUND):
-                if self.had_air_time:
+                if self.had_air_time():
                     self.oooi[OOOI.IN] = zulu
                     oooi_msg = OOOI.IN
                 else:
@@ -588,7 +938,7 @@ class PythonInterface:
                 self.chocks_removed = zulu
                 self.debug("estimated_state: removed chocks")
             elif was(FLIGHT.MOVING_ON_GROUND):
-                if self.had_air_time:
+                if self.had_air_time():
                     self.debug("estimated_state: had air time, stopped, may be parked? tentative IN")
                     self.oooi[OOOI.IN] = zulu
                     oooi_msg = OOOI.IN
@@ -600,7 +950,7 @@ class PythonInterface:
             if was(FLIGHT.IN_AIR):  # landed
                 self.oooi[OOOI.ON] = zulu
                 oooi_msg = OOOI.ON
-            elif was(FLIGHT.ON_BLOCK) or was(FLIGHT.STOPPED) and not self.had_air_time:
+            elif was(FLIGHT.ON_BLOCK) or was(FLIGHT.STOPPED) and not self.had_air_time():
                 if was(FLIGHT.ON_BLOCK):
                     self.chocks_removed = zulu
                 if self.oooi[OOOI.OUT] is None:
@@ -608,7 +958,7 @@ class PythonInterface:
                     oooi_msg = OOOI.OUT
 
         elif new_state == FLIGHT.IN_AIR:
-            self.had_air_time = True
+            self._had_air_time = True
             if was(FLIGHT.MOVING_ON_GROUND):  # take-off
                 self.oooi[OOOI.OFF] = zulu
                 oooi_msg = OOOI.OFF
@@ -623,27 +973,37 @@ class PythonInterface:
         self._estimated_state = new_state
 
     def calibration(self, takeoff: bool = True):
-        move = "TAKEOFF" if takeoff else "LANDING"
+        movement = "TAKEOFF" if takeoff else "LANDING"
         try:
             lat = self.fdr_data_by_name.get("latitude").value
             lon = self.fdr_data_by_name.get("longitude").value
             alt = self.header.get("ABGL").value
             self.debug(f"CALI lat={lat}, lon={lon}, alt={alt}", force=True)
-            self.debug(f"COMM CALI {move} PRECISION: recording frequency={self.frequency} secs.", force=True)
-            self.debug(f"COMM CALI {move} not written to FDR file", force=True)
+            self.debug(f"COMM CALI {movement} PRECISION: recording frequency={self.frequency} secs.", force=True)
+            self.debug(f"COMM CALI {movement} not written to FDR file", force=True)
         except Exception as e:
             self.debug(f"calibration: error: {e}", force=True)
 
     def add_elev(self, dt: datetime, alt: float):
         # Add (timestamp, elevation) to limited list for regression
-        self.elevs.append((dt.timestamp(), alt))
+        if type(alt) in [int, float]:
+            self.elevs.append((dt.timestamp(), alt))
         if len(self.elevs) > REG_LEN:
             self.elevs = self.elevs[-10:]
 
+    def add_speed(self, dt: datetime, speed: float):
+        # Add (timestamp, elevation) to limited list for regression
+        if type(speed) in [int, float]:
+            self.speeds.append((dt.timestamp(), speed))
+        if len(self.speeds) > REG_LEN:
+            self.speeds = self.speeds[-10:]
+
     def vertical_lr(self) -> tuple:
         # Linear regression on last altitude checkpoints to monitor trend (descending/ascending)
+        # Returns   a, error, number of points, last - olders
         if len(self.elevs) < 3:
-            return 0.0, 0.0
+            diff = 0 if len(self.elevs) < 2 else self.elevs[-1][1] - self.elevs[0][1]
+            return 0.0, 0.0, len(self.elevs), diff
         x = [a[0] for a in self.elevs]
         mx = sum(x) / len(x)
         y = [a[1] for a in self.elevs]
@@ -653,7 +1013,23 @@ class PythonInterface:
         nxy = sum([(a[0] - mx) * (a[1] - my) for a in self.elevs])
         r2 = ny2 / (len(self.elevs) - 2)
         r = math.sqrt(r2)
-        return nxy / math.sqrt(nx2 * ny2) if nx2 != 0.0 and ny2 != 0.0 else 0.0, r
+        return nxy / math.sqrt(nx2 * ny2) if nx2 != 0.0 and ny2 != 0.0 else 0.0, r, len(self.elevs), self.elevs[-1][1] - self.elevs[0][1]
+
+    def speed_lr(self) -> tuple:
+        # Linear regression on last speed checkpoints to monitor trend (accelerating/decelerating)
+        if len(self.speeds) < 3:
+            diff = 0 if len(self.speeds) < 2 else self.speeds[-1][1] - self.speeds[0][1]
+            return 0.0, 0.0, len(self.speeds), diff
+        x = [a[0] for a in self.speeds]
+        mx = sum(x) / len(x)
+        y = [a[1] for a in self.speeds]
+        my = sum(y) / len(y)
+        nx2 = sum([(a[0] - mx) * (a[0] - mx) for a in self.speeds])
+        ny2 = sum([(a[1] - my) * (a[1] - my) for a in self.speeds])
+        nxy = sum([(a[0] - mx) * (a[1] - my) for a in self.speeds])
+        r2 = ny2 / (len(self.speeds) - 2)
+        r = math.sqrt(r2)
+        return nxy / math.sqrt(nx2 * ny2) if nx2 != 0.0 and ny2 != 0.0 else 0.0, r, len(self.speeds), self.speeds[-1][1] - self.speeds[0][1]
 
     @property
     def replay_mode(self) -> bool:
@@ -766,7 +1142,25 @@ class PythonInterface:
         self.debug("XPluginDisable: ..disabled")
         self._enabled = False
 
+    def requiresReload(self, inMessage) -> bool:
+        return inMessage in [xp.MSG_AIRPORT_LOADED, xp.MSG_SCENERY_LOADED]  # xp.MSG_DATAREFS_ADDED
+
     def XPluginReceiveMessage(self, inFromWho, inMessage, inParam):
+        # self.debug(f"XPluginReceiveMessage: received {inMessage}", force=True)
+        if self.requiresReload(inMessage):
+            if self.load_acf_preferences():
+                self.debug("XPluginReceiveMessage: preference reloaded", force=True)
+
+        # if inMessage != xp.MSG_PLANE_CRASHED:
+        #     self.stop_recording()
+        #     self.close_fdr_file()
+        #     self.debug("XPluginReceiveMessage: PLANE_CRASHED, FDR terminated", force=True)
+
+        # if inMessage != xp.MSG_PLANE_UNLOADED:
+        #     self.stop_recording()
+        #     self.close_fdr_file()
+        #     self.debug("XPluginReceiveMessage: PLANE_UNLOADED, FDR terminated", force=True)
+
         if inMessage != xp.MSG_PLANE_LOADED:
             return
         if not self._enabled:
@@ -776,7 +1170,8 @@ class PythonInterface:
         acfpath = self.header.get("ACFT").value
         if acfpath is not None and acfpath == self.last_acf:
             return
-        self.load_acf_preferences()
+        if self.load_acf_preferences():
+            self.debug("XPluginReceiveMessage: PLANE_LOADED, preference loaded", force=True)
 
     def fdrCmd(self, commandRef, phase: int, refCon: Any):
         if not self._enabled:
@@ -889,6 +1284,19 @@ class PythonInterface:
         self.prefs = newprefs
         if desc is not None:
             self.debug(f"..{desc} installed", force=True)
+
+        # ################################################
+        #
+        icao = self.header.get("ICAO").value
+        author = self.header.get("AUTH").value
+        self.debug(f"install_preferences: {icao} by {author}", force=True)
+        if icao  in ["A321", "A21N"] and author in ["Gliding Kiwi", "GlidingKiwi", "ToLiss"]:
+            all_datarefs_by_name = self.header | self.fdr_data_by_name
+            self._afp = AirbusFlightPhase(dt=self.simulator_zulu_datetime, datarefs=all_datarefs_by_name, alt_reg=self.vertical_lr, spd_reg=self.speed_lr, airtime=self.had_air_time)
+            if self._afp.valid:
+                self.debug("install_preferences: AirbusFlightPhase enabled", force=True)
+        #
+        # ################################################
         return True
 
     def load_acf_preferences(self) -> bool:
@@ -930,6 +1338,7 @@ class PythonInterface:
                     self.debug(f"load_acf_preferences: no aircraft preference file {acffile}")
         except Exception as e:
             self.debug(f"load_acf_preferences: exception: {e}", force=True)
+            print_exc()
         return False
 
     def load_preferences(self) -> bool:
