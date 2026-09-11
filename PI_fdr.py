@@ -96,7 +96,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 SHOW_TRACE = False
 NAME = "FDR"
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 DESCRIPTION = "Flight Data Recordder"
 
 FDR_MENU = "Start or stop FDR"
@@ -582,12 +582,12 @@ class AirbusFlightPhase:
             return self.flight_phase(dt=dt)
 
         # ####################@
-        #
-        # Lot of work to determine situation and deduce flight phase.
-        # Not 100% reliable.
+        # Lot of work to determine situation and deduce flight phase on start.
+        # Easy situation (at gate, ramp, cold start, etc.) are easy.
+        # In flight starts are more difficult. Not 100% reliable.
         #
         if not self._inited:  # need to check more... note: WE have no statistical regression value
-            self.debug(f"flight_phase/init:: not inited, current={self.current.phase.name}, air time={self.had_air_time()}")
+            self.debug(f"flight_phase/init:: not inited, current={self.current.phase.name}, air time={self.had_air_time()}, ecam={ecam}")
             if self.current.phase == AIRBUS_PHASE.FIRSTENGSTARTED and self.test_engpwr():
                 next_phase()
                 return self.flight_phase(dt=dt)
@@ -680,6 +680,8 @@ class AirbusFlightPhase:
 
     def test_engon(self) -> bool:
         engs = self.get_value("eng_pwr", [])
+        if engs is None:
+            return False
         self.debug(f"test_engon: {engs} #{self._e} > {ENG_OFF}")
         if len(engs) == 0:
             return False
@@ -694,6 +696,8 @@ class AirbusFlightPhase:
 
     def test_engpwr(self) -> bool:
         engs = self.get_value("eng_pwr", [])
+        if engs is None:
+            return False
         self.debug(f"test_engpwr: {engs} #{self._e} > {ENG_PWR}")
         if len(engs) == 0:
             return False
@@ -748,7 +752,7 @@ class AirbusFlightPhase:
         return self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN and how_long > FIVEMIN
 
     def test_off(self) -> bool:
-        self.debug(f"test_off: {self.get_value('elec_pwr')}")
+        self.debug(f"test_off: {self.get_value('elec_pwr', 1)}")
         return self.get_value("elec_pwr", 1) == 0
 #
 #
