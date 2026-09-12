@@ -26,6 +26,11 @@
           justify-content: center;
           align-items: center;
         }
+        .cols {
+            vertical-align: top;
+            float: left;
+            height: 200px;
+        }
     </style>
 </head>
 <body>
@@ -34,6 +39,8 @@
         <canvas id="speedAltChart"></canvas>
         <div id="buttons_container"></div>
         <!-- additional charts will come here -->
+        <div id="columns">
+        </div>
     </div>        
 <script language="javascript">
 // Ideas, to dos, etc.
@@ -90,7 +97,8 @@ ALTITUDE_COLOR = [15, 128, 255];
 const IGNORE = ["id", "UTC Time", "_raw_ts", "latitude", "longitude", SPEED, ALTITUDE];
 const CHART_CURSOR_COLOR = "rgba(0, 0, 255, 0.4)";
 const MAX_DATA_PER_CHART = 4;  // number of curves per chart, 6 is reasonable max.
-
+const NUMCOLUMNS = 3
+var column = NUMCOLUMNS < 2 ? undefined : 0;
 // Code
 //
 // Globals
@@ -147,6 +155,15 @@ function buildMap(text) {
 
     buildSpeedAltChart();
     if (chartCandidates.length > 0) {
+        container = document.getElementById("columns");
+        let width = Math.floor(100 / NUMCOLUMNS, 0) + "%";
+        for(i=0; i<NUMCOLUMNS; i++) {
+            let div = document.createElement("div");
+            div.id = "charts" + i;
+            div.classList.add("cols");
+            div.style.width = width;
+            container.appendChild(div);
+        }
         buildOtherCharts();
     }
 }
@@ -169,6 +186,7 @@ function indexForValue(arr, value) {
     while (value > arr[index] && index < arr.length) {
         index++;
     }
+    // console.log("guess ordered time sequence...", arr[0], " < ", value, " < ", arr[index], " => ", index)
     return index;
 }
 
@@ -380,7 +398,12 @@ function buildOtherCharts() {
 
 function addChart(title, datasets) {
     const chartId = "chart" + title.join("").replaceAll(" ", "")
-    const frame = document.getElementById("charts");
+    let cid = "charts"
+    if (column != undefined) {
+        cid += (column%NUMCOLUMNS);
+        column++;
+    }
+    const frame = document.getElementById(cid);
     let canvas = document.createElement("canvas");
     canvas.id = chartId;
     frame.appendChild(canvas);
@@ -415,8 +438,7 @@ function addChart(title, datasets) {
             onHover: (e) => {
                 const canvasPosition = Chart.helpers.getRelativePosition(e, otherCharts[chartId]);
                 // get index for value
-                // index = speedAltChart.scales.x.getValueForPixel(canvasPosition.x);
-                const value = speedAltChart.scales.x.getValueForPixel(canvasPosition.x);
+                const value = otherCharts[chartId].scales.x.getValueForPixel(canvasPosition.x);
                 const index = indexForValue(tlabels, value);
                 // console.log("other", chartId, canvasPosition, index);
                 moveMapCursor(index);
