@@ -75,7 +75,7 @@ const AIRCRAFT_ICON = L.icon({
 
 // Main chart shows speed and altitude (always)
 // Like at flightradar24 and flightaware.
-const SPEED = "ground_speed";  // name of GeoJSON feature property for speed
+const SPEED_DATA = "ground_speed";  // name of GeoJSON feature property for speed
 const SPEED_CONVERT = {
     "m/s": 1,
     "km/h": 3.6,
@@ -84,7 +84,7 @@ const SPEED_CONVERT = {
 const SPEED_UNIT = "kt";
 const SPEED_COLOR = [253, 128, 8];
 
-const ALTITUDE = "altitude";  // name of GeoJSON feature property for altitude
+const ALTITUDE_DATA = "altitude";  // name of GeoJSON feature property for altitude
 const ALTITUDE_CONVERT = {
     "m": 0.3048,
     "ft": 1,
@@ -92,21 +92,21 @@ const ALTITUDE_CONVERT = {
 };
 const ALTITUDE_UNIT = "ft";
 const ALTITUDE_COLOR = [15, 128, 255];
-const SHOW_ALTITUDE = true;
+const SHOW_ALTITUDE = true;  // include altitude in GeoJSON file
 
 const CHART_CURSOR_COLOR = "rgba(0, 0, 255, 0.4)";
 
-// list of "additional" GeoJSON feature properties to ignore for charting
-const IGNORE = ["id", "UTC Time", "_raw_ts", "latitude", "longitude", SPEED, ALTITUDE];
+// list of GeoJSON feature properties to ignore for charting
+const IGNORE = ["id", "UTC Time", "_raw_ts", "latitude", "longitude", SPEED_DATA, ALTITUDE_DATA];
 
-// Limits: 3x4x6 = 72 data
-const MAX_LINES = 3;  // ideal number of charts rows, ideal is 3
+const MAX_LINES = 3;  // ideal number of charts rows, BUT grows as needed to accomodate all data
 const MAX_COLUMNS = 4;  // reasonable max.
 const MAX_DATA_PER_CHART = 6;  // reasonable max.
 
 const AUTO_ADJUST_LAYOUT = true;
 var NUM_COLUMNS = 3;          
 var NUM_DATA_PER_CHART = 4;
+var RAW_FDR = false
 // Code
 //
 // Globals
@@ -267,6 +267,7 @@ function parseFDRfile(text) {
     // console.log(geojson);
     // transpose data array:
     // output = array[0].map((_, colIndex) => array.map(row => row[colIndex]));
+    RAW_FDR = true
     return geojson;
 }
 
@@ -393,7 +394,7 @@ function optimizeChartLayout(numdata) {
         }
         NUM_COLUMNS = Math.ceil(per_line / NUM_DATA_PER_CHART);
         let e_lines = Math.ceil(numdata / (NUM_DATA_PER_CHART * NUM_COLUMNS));
-        console.log("optimizeChartLayout", numdata, per_line, e_lines, MAX_LINES, NUM_COLUMNS, NUM_DATA_PER_CHART);
+        // console.log("optimizeChartLayout", numdata, per_line, e_lines, MAX_LINES, NUM_COLUMNS, NUM_DATA_PER_CHART);
     } catch { // restore defaults
         console.log("optimizeChartLayout default");
         NUM_COLUMNS = 3;          
@@ -431,11 +432,11 @@ function buildSpeedAltChart() {
             timeStyle: "long",
         }).format(date);
         fmt = fmt.substr(0, 8);
-        tlabels.push(pointFeatures[i].properties._raw_ts * 1000);
+        tlabels.push(pointFeatures[i].properties._raw_ts * (RAW_FDR ? 1 : 1000));
     }
-    let spd = propertyValues(SPEED)  // speed is in m/s
+    let spd = propertyValues(SPEED_DATA)  // speed is in m/s
     spd = spd.map((s) => s * SPEED_CONVERT[SPEED_UNIT])
-    let alt = propertyValues(ALTITUDE) // alt is in ft
+    let alt = propertyValues(ALTITUDE_DATA) // alt is in ft
     alt = alt.map((s) => s * ALTITUDE_CONVERT[ALTITUDE_UNIT])
 
     const data = {
@@ -445,7 +446,7 @@ function buildSpeedAltChart() {
             borderColor: "rgba(" + SPEED_COLOR.join(",") + ", 1)", // orange
             borderWidth: 2,
             data: spd,
-            label: SPEED.replaceAll("_", " "),
+            label: SPEED_DATA.replaceAll("_", " "),
             pointRadius: 0,
             tension: 0,
             yAxisID: "y",
@@ -454,7 +455,7 @@ function buildSpeedAltChart() {
             borderColor: "rgba(" + ALTITUDE_COLOR.join(",") + ", 1)", // blue
             borderWidth: 2,
             data: alt,
-            label: ALTITUDE.replaceAll("_", " "),
+            label: ALTITUDE_DATA.replaceAll("_", " "),
             pointRadius: 0,
             tension: 0,
             yAxisID: "y1",
@@ -528,9 +529,9 @@ function buildSpeedAltChart() {
                                 label += ": ";
                             }
                             if (context.parsed.y !== null) {
-                                if (context.dataset.label == SPEED.replaceAll("_", " ")) {
+                                if (context.dataset.label == SPEED_DATA.replaceAll("_", " ")) {
                                     label += Math.round(context.parsed.y, 0) + SPEED_UNIT;
-                                } else if (context.dataset.label == ALTITUDE.replaceAll("_", " ")) {
+                                } else if (context.dataset.label == ALTITUDE_DATA.replaceAll("_", " ")) {
                                     label += Math.round(context.parsed.y, 0) + ALTITUDE_UNIT;
                                 }
                             }
@@ -754,7 +755,7 @@ function convertRadiansToDegrees(radians) {
 
 function aircraftPosition(idx) {
     if (idx == undefined) {
-        console.log("warning", idx);
+        console.warn("aircraftPosition", idx);
         return;
     }
     let pos = latlngs[idx];
@@ -764,7 +765,7 @@ function aircraftPosition(idx) {
 
 function tracking(src, dst) {
     if (src == undefined || dst == undefined) {
-        console.log("warning", src, dst);
+        console.warn("tracking", src, dst);
         return 0.0;
     }
     let lat1 = convertDegreesToRadians(src[0])
@@ -778,7 +779,7 @@ function tracking(src, dst) {
 
 function moveMapCursor(idx) {
     if (idx == undefined) {
-        console.log("warning", idx);
+        console.warn("moveMapCursor", idx);
         return;
     }
     let rot = tracking(latlngs[idx], latlngs[idx+1]) + AIRCRAFT_ICON_ROTATION;

@@ -59,7 +59,7 @@ import tomllib
 from functools import reduce
 from datetime import datetime, timedelta, timezone
 from traceback import print_exc
-from typing import Callable, Any
+from typing import Callable, Any, List
 from dataclasses import dataclass
 from enum import IntEnum
 
@@ -94,7 +94,7 @@ except ModuleNotFoundError:
 PLUGIN_ROOT_PATH = os.path.dirname(os.path.abspath(__file__))  # .../PythonPlugins
 SCRIPT_NAME = os.path.basename(__file__)
 
-SHOW_TRACE = False
+SHOW_TRACE = True
 NAME = "FDR"
 VERSION = "1.3.2"
 DESCRIPTION = "Flight Data Recordder"
@@ -247,8 +247,10 @@ class FDRData:
                 self.pyslice = slice(s0, e0, i0)
                 # print(f"{NAME} {VERSION}::FDRData.init: array slice currently experimental: {self.name} {self.dataref}")
                 self.dref = find_dataref(whole_dref)
+                self.dataref = whole_dref
                 # print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, {self.pyslice} -> {self.indices})")
                 print(f"{NAME} {VERSION}::FDRData.init: registered {whole_dref}[{self.indices}]) *** EXPERIMENTAL/SLICE")
+                self.info()
                 return True
             if "[" in whole_dref:
                 s = whole_dref[whole_dref.index("[") + 1 : whole_dref.index("]")]
@@ -258,17 +260,48 @@ class FDRData:
                     # print(f"{NAME} {VERSION}::FDRData.init: array indices currently experimental: {self.name} {self.dataref}")
                     self.dref = find_dataref(whole_dref)
                     # print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, '{s}' -> {self._indices}")
-                    print(f"{NAME} {VERSION}::FDRData.init: registered {whole_dref}[{self._indices}]) *** EXPERIMENTAL/INDEXLIST")
+                    self.dataref = whole_dref
+                    self.info()
                     return True
                 # else:
                 #     print(f"{NAME} {VERSION}::FDRData.init: unique index: {whole_dref}")
             self.dref = find_dataref(whole_dref)
-            print(f"{NAME} {VERSION}::FDRData.init: registered {whole_dref}")
+            self.info()
             return self.dref is not None
         except Exception as e:
             print(f"{NAME} {VERSION}::FDRData.init: {whole_dref} init failed: {e}")
             print_exc()
         return False
+
+    def info(self):
+        if self.dref is None:
+            print(f"{NAME} {VERSION}::FDRData.info: {self.dataref} no dref")
+            return 0
+        info = self.dataref
+        if "[" in info:
+            info = info[:info.index("[")]
+        if self.is_array:
+            l = self.length
+            if l is not None:
+                info += f"[{l}]"
+        if len(self.dref.types) > 1:
+            print(f"{NAME} {VERSION}::FDRData.info: WARNING: more than one type")
+            info += f"::{','.join(self.dref.types)}"
+        else:
+            info += f"::{self.dref.types[0].replace('_array', '').replace('data', 'byte')}"
+        print(f"{NAME} {VERSION}::FDRData.info: {info}")
+        self.fetched()
+
+    def fetched(self):
+        if self.dref is None:
+            print(f"{NAME} {VERSION}::FDRData.info: {self.dataref} no dref")
+            return 0
+        if self._indices is not None:
+            print(f"{NAME} {VERSION}::FDRData.fetched: {self.dataref}[{self.indices}]")
+        elif self.pyslice is not None:
+            print(f"{NAME} {VERSION}::FDRData.fetched: {self.dataref}[{self.indices}]")
+        else:
+            print(f"{NAME} {VERSION}::FDRData.fetched: {self.dataref}")
 
     def fun(self) -> str | None:
         # See http://xion.io/post/code/python-get-lambda-code.html
@@ -305,7 +338,7 @@ class FDRData:
 
     @property
     def length(self) -> int:
-        # return dataref length if it is an array (int or float)
+        # return *dataref length* if it is an array (int or float)
         LENGTH = "_length"
         if self.dref is None:
             print(f"{NAME} {VERSION}::FDRData.length: {self.dataref} no dref")
@@ -313,9 +346,11 @@ class FDRData:
         if hasattr(self, LENGTH):  # cached
             return getattr(self, LENGTH)
         v = self.dref.value
+        if "data" in self.dref.types:
+            v = self.dref.bytes
         if v is None:
             return 0
-        if isinstance(v, (list, tuple, dict)):
+        if isinstance(v, (list, tuple, dict, bytes)):
             setattr(self, LENGTH, len(v))
             return self._length
         setattr(self, LENGTH, 1)
@@ -390,6 +425,37 @@ class FDRData:
             print(f"{NAME} {VERSION}::FDRData.value: callback {self.name} {self.dataref} exception: {e}")
             v = None
         return v
+
+
+class NavType(IntEnum):
+    Nav_Unknown=0
+    Nav_Airport=1
+    Nav_NDB=2
+    Nav_VOR=4
+    Nav_ILS=8
+    Nav_Localizer=16
+    Nav_GlideSlope=32
+    Nav_OuterMarker=64
+    Nav_MiddleMarker=128
+    Nav_InnerMarker=256
+    Nav_Fix=512
+    Nav_DME=1024
+    Nav_LatLon=2048
+    Nav_TACAN=4096
+
+NAVAID_TYPE = [xp.Nav_NDB, xp.Nav_VOR, xp.Nav_DME, xp.Nav_Fix]
+
+@dataclass
+class NavAid:
+    name: str
+    lat: float
+    lon: float
+    navType: NavType
+    navAidId: str
+    height: float = 0.0
+    heading: float = 0.0
+    frequency: int = 0  # / 100
+    reg: bool = False
 
 
 # Collected once for session, displayed in FDR report header
@@ -524,9 +590,11 @@ class AirbusFlightPhase:
             "sim/flightmodel/position/groundspeed",  # ground_speed
             "sim/flightmodel2/position/y_agl",  # ABGL
         ]
-        test = [d for d in needed if d not in [k.dataref for k in self.datarefs.values()]]
+        valid_list = [k.dataref for k in self.datarefs.values()]
+        test = [d for d in needed if d not in valid_list]
         if len(test) > 0:
             self.debug(f"missing dataref {test}, invalid", force=True)
+            self.debug(f"{valid_list}", force=True)
             return False
         return True
 
@@ -800,8 +868,10 @@ class PythonInterface:
         self.start_time = None
         self.last_stop = None
         self.writes = 0
-        self.elevs = []
-        self.speeds = []
+        self.elevs: List[float] = []
+        self.speeds: List[float] = []
+        self.navaids: Dict[str, NavAid] = {}
+        self.navaid_counter = 0
 
         # Can be changed in preferences
         self.fdr_info = []
@@ -1381,6 +1451,7 @@ class PythonInterface:
         try:
             if self.need_delayed_init:
                 self.delayed_init()
+            self.collect_navaids()
             self.estimated_state = self.flight_status
             if self.replay_mode and self.recorder_running:
                 self.debug("supervisor: replay mode detected, stoping FDR..", force=True)
@@ -1576,6 +1647,29 @@ class PythonInterface:
             xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 1)
             self.recorderFL = None
             if self.file is not None:
+                self.write_navaids()
                 print(f"\n\nCOMM, end recording on {self.system_now_datetime.isoformat()} ({self.writes} writes)", file=self.file)
                 print(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n", file=self.file)
             self.debug(f"stop_recording: stopped at {self.start_time.isoformat()}")
+
+    def write_navaids(self):
+        for n in self.navaids.values():
+            n.navType = n.navType.name
+            print(f"COMM, {n}", file=self.file)
+
+    def collect_navaids(self):
+        try:
+            # do not always search for several types to find more nav aids around
+            types = NAVAID_TYPE[self.navaid_counter % len(NAVAID_TYPE)]
+            self.navaid_counter += 1
+            navaid = xp.findNavAid(lat=self.fdr_data_by_name.get("latitude").value, lon=self.fdr_data_by_name.get("longitude").value, navType=types)
+            if navaid != xp.NAV_NOT_FOUND:
+                d = xp.getNavAidInfo(navaid)
+                k = f"{d.type}:{d.name}"
+                if k not in self.navaids:
+                    c = NavAid(name=d.name, navType=NavType(d.type), lat=d.latitude, lon=d.longitude, height=d.height, frequency=d.frequency, heading=d.heading, navAidId=d.navAidID, reg=d.reg)
+                    self.navaids[k] = c
+                    self.debug(f"collect_navaids: {c}")
+        except Exception as e:
+            self.debug(f"collect_navaids: error {e}")
+            print_exc()
