@@ -99,7 +99,7 @@ const CHART_CURSOR_COLOR = "rgba(0, 0, 255, 0.4)";
 const IGNORE = ["id", "UTC Time", "_raw_ts", "latitude", "longitude", SPEED, ALTITUDE];
 
 // Limits: 3x4x6 = 72 data
-const MAX_LINES = 2;  // ideal
+const MAX_LINES = 3;  // ideal number of charts rows, ideal is 3
 const MAX_COLUMNS = 4;  // reasonable max.
 const MAX_DATA_PER_CHART = 6;  // reasonable max.
 
@@ -118,6 +118,36 @@ var mapCursor = undefined; // map cursor
 var otherCharts = {}; // for cursor positioning
 var chartCandidates = Array(); // additional charts to plot from properties
 
+function print_props(props) {
+    let s = "<b>UTC Time " + props["UTC Time"].substr(11,12) + "</b><br/>";
+    Object.keys(props).forEach( (p) => {
+        if (["_raw_ts", "id", "UTC Time"].indexOf(p) == -1) {
+            s += "<b>" + p + "</b>: <i>";
+            let v= props[p];
+            if (isNaN(v)) {
+                s += v;
+            } else {
+                let d = 0;
+                switch(p) {
+                case "latitude":
+                case "longitude":
+                    d = 6;
+                    break;
+                case "pitch":
+                case "roll":
+                    d = 2;
+                    break;
+                default:
+                    d = 0;
+                }
+                s += d > 0 ? v.toPrecision(d) : Math.round(v);
+            }
+            s+= "</i><br/>";
+        }
+    });
+    return s
+}
+
 function buildMap(text) {
     document.body.style["background-image"] = "none";
     geojson = JSON.parse(text);
@@ -131,6 +161,8 @@ function buildMap(text) {
             moveMapCursor(f.id);
             moveChartCursor(f.id);
         })
+        m.bindTooltip(f.properties["UTC Time"].substr(11,12));
+        m.bindPopup(print_props(f.properties));
         return m;
     });
     // Start leaflet
@@ -185,6 +217,12 @@ function optimizeChartLayout(numdata) {
             NUM_COLUMNS = MAX_COLUMNS;
             NUM_DATA_PER_CHART = MAX_DATA_PER_CHART;
             console.log("optimizeChartLayout maxima");
+            return;
+        }
+        if (numdata <= (MAX_LINES * NUM_COLUMNS)) { // max chart density but only 1 data per chart
+            NUM_DATA_PER_CHART = 1;
+            NUM_COLUMNS = Math.ceil(numdata / MAX_LINES);
+            console.log("optimizeChartLayout 1 data per chart");
             return;
         }
         let per_line = Math.ceil(numdata / MAX_LINES);  // num of data to show per lines
