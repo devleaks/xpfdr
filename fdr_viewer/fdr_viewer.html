@@ -160,7 +160,7 @@ function parseFDRfile(text) {
     const fdr_data_definition = new RegExp("FDRData\\((name=(?<name>[^,]*)),[\\s]*(dataref=(?<dataref>[^,]*)),[\\s]*(pyslice=(?<pyslice>[^,]*)),[\\s]*(_indices=(?<_indices>[^,]*)),[\\s]*(callback=(?<callback>[^,]*)),[\\s]*(unit=(?<unit>[^,]*)),[\\s]*(force_datatype=(?<force_datatype>[^,]*)),[\\s]*(factor=(?<factor>[^,]*))[\\s]*\\)");
 
     let lines = text.split("\n");
-    console.log(lines.length);
+    // console.log(lines.length);
     let first_line = lines[0].split("\r");
     if (first_line[0] != "A") {
         console.log("invalid X-Plane FDR file", first_line[0]);
@@ -192,7 +192,7 @@ function parseFDRfile(text) {
             if (line[0].trim() == "DATE") {
                 let a = line.slice(1).join(",").split("/");
                 date = new Date(a[2], a[0]-1, a[1]);
-                console.log("date", date);
+                console.log(date);
             }
             // console.log(lines[i]);
             i++;
@@ -216,7 +216,7 @@ function parseFDRfile(text) {
                             m.groups["factor"]
                         );
                         fdr_data.push(d);
-                        console.log(d);
+                        // console.log(d);
                     }
                 } else if (a.startsWith("UTC")) {
                     columns = a.split(",");
@@ -264,7 +264,7 @@ function parseFDRfile(text) {
         type: "FeatureCollection",
         features: fc
     }
-    console.log(geojson);
+    // console.log(geojson);
     // transpose data array:
     // output = array[0].map((_, colIndex) => array.map(row => row[colIndex]));
     return geojson;
@@ -278,7 +278,7 @@ function print_props(props) {
     let s = "<b>UTC Time " + props["UTC Time"].substr(11,12) + "</b><br/>";
     Object.keys(props).forEach( (p) => {
         if (["_raw_ts", "id", "UTC Time"].indexOf(p) == -1) {
-            s += "<b>" + p + "</b>: <i>";
+            s += "<b>" + p.replaceAll("_", " ") + "</b>: <i>";
             let v= props[p];
             if (isNaN(v)) {
                 s += v;
