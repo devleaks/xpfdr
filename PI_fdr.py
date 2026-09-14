@@ -96,7 +96,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 SHOW_TRACE = False
 NAME = "FDR"
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 DESCRIPTION = "Flight Data Recordder"
 
 FDR_MENU = "Start or stop FDR"
@@ -824,6 +824,10 @@ class PythonInterface:
         return {d.name: d for d in self.fdr_all_data}
 
     @property
+    def fdr_info_by_name(self) -> dict:
+        return {d.name: d for d in self.fdr_info}
+
+    @property
     def chocked(self) -> bool:
         c = self.header.get("CHOK") if self.custom_chocks is None else self.custom_chocks
         v = None
@@ -1295,7 +1299,7 @@ class PythonInterface:
         author = self.header.get("AUTH").value
         self.debug(f"install_preferences: {icao} by {author}", force=True)
         if icao  in ["A321", "A21N"] and author in ["Gliding Kiwi", "GlidingKiwi", "ToLiss"]:
-            all_datarefs_by_name = self.header | self.fdr_data_by_name
+            all_datarefs_by_name = self.header | self.fdr_info_by_name | self.fdr_data_by_name
             self._afp = AirbusFlightPhase(dt=self.simulator_zulu_datetime, datarefs=all_datarefs_by_name, alt_reg=self.vertical_lr, spd_reg=self.speed_lr, airtime=self.had_air_time)
             if self._afp.valid:
                 self.debug("install_preferences: AirbusFlightPhase enabled", force=True)
