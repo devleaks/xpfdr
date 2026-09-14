@@ -48,7 +48,7 @@
 // When zooming, set 2 carets on min, max on path on map
 const VERSION = "1.0.1"
 // File types for FDR: GeoJSON
-const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json"]
+const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", ""]
 // Each point in the geojson file will be represented by this almost transparent icon.
 // The goal is to provide interactivity and react when the icon is hover'ed.
 // If number of point exceeds a threshold, a sampling should be used.
@@ -81,8 +81,8 @@ const SPEED_CONVERT = {
     "km/h": 3.6,
     "kt": 1.943844
 };
-SPEED_UNIT = "kt";
-SPEED_COLOR = [253, 128, 8];
+const SPEED_UNIT = "kt";
+const SPEED_COLOR = [253, 128, 8];
 
 const ALTITUDE = "altitude";  // name of GeoJSON feature property for altitude
 const ALTITUDE_CONVERT = {
@@ -90,8 +90,9 @@ const ALTITUDE_CONVERT = {
     "ft": 1,
     "fl": 0.001
 };
-ALTITUDE_UNIT = "ft";
-ALTITUDE_COLOR = [15, 128, 255];
+const ALTITUDE_UNIT = "ft";
+const ALTITUDE_COLOR = [15, 128, 255];
+const SHOW_ALTITUDE = true;
 
 const CHART_CURSOR_COLOR = "rgba(0, 0, 255, 0.4)";
 
@@ -117,6 +118,161 @@ var speedAltChart = undefined; // for cursor positioning
 var mapCursor = undefined; // map cursor
 var otherCharts = {}; // for cursor positioning
 var chartCandidates = Array(); // additional charts to plot from properties
+
+const HEADER_KEYWORDS = [
+  "ACFT",
+  "TAIL",
+  "TIME",
+  "DATE",
+  "PRES",
+  "TEMP",
+  "WIND",
+  "DISA",
+]
+
+const DATA_KEYWORDS = [
+  "COMM",
+  "DREF",
+  "CALI",
+  "WARN",
+  "TEXT",
+  "MARK",
+  "EVNT",
+//  "DATA",
+]
+
+// Container for data
+class FDRData {
+    constructor(name, dataref, pyslice, callback, unit, force_datatype, factor) {
+        this.name = name
+        this.dataref = dataref
+        this.pyslice = pyslice
+        this._indices = null
+        this.callback = callback
+        this.unit = unit
+        this.force_datatype = force_datatype
+        this.factor = 1.0
+        this.dref = null
+    }
+}
+
+function parseFDRfile(text) {
+    const fdr_data_definition = new RegExp("FDRData\\((name=(?<name>[^,]*)),[\\s]*(dataref=(?<dataref>[^,]*)),[\\s]*(pyslice=(?<pyslice>[^,]*)),[\\s]*(_indices=(?<_indices>[^,]*)),[\\s]*(callback=(?<callback>[^,]*)),[\\s]*(unit=(?<unit>[^,]*)),[\\s]*(force_datatype=(?<force_datatype>[^,]*)),[\\s]*(factor=(?<factor>[^,]*))[\\s]*\\)");
+
+    let lines = text.split("\n");
+    console.log(lines.length);
+    let first_line = lines[0].split("\r");
+    if (first_line[0] != "A") {
+        console.log("invalid X-Plane FDR file", first_line[0]);
+        return {};
+    }
+
+    if (["3", "4"].indexOf(first_line[1]) == -1) {
+        console.log("invalid X-Plane FDR file version", first_line[1]);
+        return {};
+    }
+
+    let fdr_version = parseInt(first_line[1]);
+    console.log("FDR data format version", fdr_version);
+
+    let i = 1;
+    let date = new Date();
+    let data = Array();
+    let fdr_data = Array();
+    let columns = Array();
+    let fc = Array();
+    let count = 0;
+    while(i < lines.length) {
+        if (lines[i].trim() == "") {
+            i++;
+            continue;
+        }
+        let line = lines[i].trim().split(",");
+        if (HEADER_KEYWORDS.indexOf(line[0].trim()) > -1) {
+            if (line[0].trim() == "DATE") {
+                let a = line.slice(1).join(",").split("/");
+                date = new Date(a[2], a[0]-1, a[1]);
+                console.log("date", date);
+            }
+            // console.log(lines[i]);
+            i++;
+            continue;
+        }
+        if (DATA_KEYWORDS.indexOf(line[0].trim()) > -1) {
+            if (line[0].trim() == "COMM") {
+                let a = line.slice(1).join(",").trim();
+                a = a.replace("'", "")
+                if (a.startsWith("FDRData(")) {
+                    let m = fdr_data_definition.exec(a);
+                    if (m != undefined) {
+                        let d = new FDRData(
+                            m.groups["name"],
+                            m.groups["dataref"],
+                            m.groups["pyslice"],
+                            m.groups["_indices"],
+                            m.groups["callback"],
+                            m.groups["unit"],
+                            m.groups["force_datatype"],
+                            m.groups["factor"]
+                        );
+                        fdr_data.push(d);
+                        console.log(d);
+                    }
+                } else if (a.startsWith("UTC")) {
+                    columns = a.split(",");
+                    for(j=0;j<columns.length;j++) {
+                        columns[j] = columns[j].trim();
+                    }
+                    console.log(columns);
+                }
+            }
+            // console.log(lines[i]);
+            i++;
+            continue;
+        }
+        // raw
+        data.push(line[0] == "DATA" ? line.slice(1) : line);
+        // GeoJSON Feature
+        let t = line[0].trim().split(":");
+        let ms = Math.round(1000 * (t[2] - Math.round(t[2])))
+        let d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), t[0], t[1], Math.round(t[2]), ms);
+        d.setUTCHours(t[0]);
+        props = {
+            "UTC Time": d.toISOString(),
+            "_raw_ts": d.getTime(),
+            "elevation": line[2],
+        }
+        for(j=1; j < line.length; j++) {
+            props[j < columns.length ? columns[j] : "prop" + j] = isNaN(line[j]) ? line[j] : parseFloat(line[j]);
+        }
+        let f = {
+            id: count++,
+            type: "Feature",
+            geometry: {
+                type: "Point",
+                coordinates: [parseFloat(line[1]), parseFloat(line[2])]
+            },
+            properties: props
+        }
+        if (SHOW_ALTITUDE) {
+            f.geometry.coordinates.push(parseFloat(line[3]));
+        }
+        fc.push(f);
+        i++;
+    }
+    let geojson = {
+        type: "FeatureCollection",
+        features: fc
+    }
+    console.log(geojson);
+    // transpose data array:
+    // output = array[0].map((_, colIndex) => array.map(row => row[colIndex]));
+    return geojson;
+}
+
+function parseGeoJSONFile(text) {
+    return JSON.parse(text);
+}
 
 function print_props(props) {
     let s = "<b>UTC Time " + props["UTC Time"].substr(11,12) + "</b><br/>";
@@ -148,9 +304,14 @@ function print_props(props) {
     return s
 }
 
-function buildMap(text) {
+function buildMap(text, filetype) {
     document.body.style["background-image"] = "none";
-    geojson = JSON.parse(text);
+    let geojson;
+    if (filetype == "") {
+        geojson = parseFDRfile(text);
+    } else {
+        geojson = parseGeoJSONFile(text);
+    }
     pointFeatures = geojson.features.filter((f) => f.geometry.type == "Point");
     latlngs = pointFeatures.map((f) => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
     let markers = pointFeatures.map( (f) => {
@@ -189,7 +350,7 @@ function buildMap(text) {
     // guess properties list from first point feature
     const f = pointFeatures[0];
     chartCandidates =  Object.keys(f.properties)
-        .filter((p) => typeof(f.properties[p]) == "number" && IGNORE.indexOf(p) == -1);
+        .filter((p) => typeof(f.properties[p]) == "number" && IGNORE.indexOf(p.trim()) == -1);
     // console.log(chartCandidates, chartCandidates.length);
 
     buildSpeedAltChart();
@@ -698,8 +859,9 @@ document.documentElement.addEventListener("drop", (e) => {
     e.preventDefault();
     document.body.classList.remove("dragging");
     let fr = new FileReader();
+    let ft = e.dataTransfer.files[0].type;
     fr.onload = function() {
-        buildMap(fr.result);
+        buildMap(fr.result, ft);
     };
     if (ALLOWED_FILE_TYPES.indexOf(e.dataTransfer.files[0].type) > -1) {
         fr.readAsText(e.dataTransfer.files[0]);
