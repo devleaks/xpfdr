@@ -46,7 +46,7 @@
 // Ideas, to dos, etc.
 // When zooming, sync all charts
 // When zooming, set 2 carets on min, max on path on map
-const VERSION = "1.0.1"
+const VERSION = "1.1.0"
 // File types for FDR: GeoJSON
 const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", ""]
 // Each point in the geojson file will be represented by this almost transparent icon.
@@ -269,19 +269,22 @@ function parseFDRfile(text) {
                 } else if (a.startsWith("NavAid(")) {
                     let m = navaid_definition.exec(a);
                     if (m != undefined) {
-                        let d = new NavAid(
-                            m.groups["name"].replaceAll('"', ""),
-                            parseFloat(m.groups["lat"]),
-                            parseFloat(m.groups["lon"]),
-                            m.groups["navType"],
-                            m.groups["navAidId"],
-                            parseFloat(m.groups["height"]),
-                            parseFloat(m.groups["heading"]),
-                            parseFloat(m.groups["frequency"])/100,
-                            parseFloat(m.groups["reg"])
-                        );
-                        navaids.push(d);
-                        console.log(d);
+                        navaids.push({
+                            type: "Feature",
+                            geometry: {
+                                type: "Point",
+                                coordinates: [parseFloat(m.groups["lon"]), parseFloat(m.groups["lat"])]
+                            },
+                            "properties": {
+                                name: m.groups["name"].replaceAll('"', ""),
+                                navType: m.groups["navType"].replace("Nav_", ""),
+                                navAidId: m.groups["navAidId"],
+                                height: parseFloat(m.groups["height"]),
+                                heading: parseFloat(m.groups["heading"]),
+                                frequency: parseFloat(m.groups["frequency"])/100,
+                                reg: parseFloat(m.groups["reg"])
+                            }
+                        })
                     }
                 } else if (a.startsWith("UTC")) {
                     columns = a.split(",");
@@ -325,6 +328,7 @@ function parseFDRfile(text) {
         fc.push(f);
         i++;
     }
+    fc = fc.concat(navaids);
     let geojson = {
         type: "FeatureCollection",
         features: fc
