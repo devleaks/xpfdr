@@ -5,7 +5,7 @@ from pprint import pprint
 from enum import Enum
 from traceback import print_exc
 
-from PI_fdr import FDRData  # used in eval(), FDRData is a @dataclass
+from PI_fdr import FDRData, NavAid
 
 HEADER_KEYWORDS = [
   "ACFT",
@@ -77,6 +77,7 @@ class FDRReader:
     self.data = []
     self._last_ts = None
     self.fdr_data = {}
+    self.navaids = {}
 
   @property
   def duration(self) -> timedelta:
@@ -137,8 +138,19 @@ class FDRReader:
               print(text)
               fdrdata = eval(text)
               fdrdata.data_index = data_index
-              data_index += 1
               self.fdr_data[fdrdata.name] = fdrdata
+              # print(t)
+            except:
+              print("failed to eval(), skipped", text)
+              print_exc()
+            i += 1
+            continue
+          if text.startswith("NavAid("):
+            try:
+              print(text)
+              navaid = eval(text)
+              k = f"{navaid.navType}:{navaid.name}"
+              self.navaids[k] = navaid
               # print(t)
             except:
               print("failed to eval(), skipped", text)
@@ -259,6 +271,27 @@ class FDRReader:
         "name": "flight path"
       }
      })
+    # navaids
+    for n in self.navaids.values():
+      feature_index += 1
+      features.append({
+        "type": "Feature",
+        "id": feature_index,
+        "geometry": {
+          "type": "Point",
+          "coordinates": [n.lon, n.lat]
+        },
+        "properties": {
+          "name": n.name,
+          "navType": n.navType.replace("Nav_", ""),
+          "navAidId": n.navAidId,
+          "height": round(n.height, 1),
+          "heading": round(n.heading, 1),
+          "frequency": n.frequency / 100,
+          "reg": n.reg,
+        }
+       })
+
     # if 3D, add draped polygon
     if altitude:
       AIRPORT_ALT = min([a[2] for a in lines])

@@ -47,6 +47,8 @@ CHANGELOG
 1.2.0 08-SEP-2026 Added python slice() dataref array range parsing like [:-6] and index list like [1,3,5]
 1.2.1 08-SEP-2026 Added option to change auto stop timeout (default to 10 minutes)
 1.3.0 08-SEP-2026 Added Airbus ECAM flight phase detection on ToLiss Airbus aircrafts.
+1.4.0 14-SEP-2026 Added navaid log
+1.5.0 15-SEP-2026 Register command executions
 
 """
 
@@ -96,7 +98,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 SHOW_TRACE = True
 NAME = "FDR"
-VERSION = "1.3.2"
+VERSION = "1.5.0"
 DESCRIPTION = "Flight Data Recordder"
 
 FDR_MENU = "Start or stop FDR"
@@ -231,6 +233,11 @@ class FDRData:
     force_datatype: str | None = None
     factor: float = 1.0
     dref = None
+
+    @classmethod
+    def new(cls, dataref: str):
+        name = dataref[dataref.rindex("/")+1:]
+        return cls(name=name, dataref=dataref)
 
     def init(self) -> bool:
         # One day, we may accept values like "sim/dataref_array[1,5,7,9]"
@@ -427,7 +434,7 @@ class FDRData:
         return v
 
 
-class NavType(IntEnum):
+class NAVAID_TYPE(IntEnum):
     Nav_Unknown=0
     Nav_Airport=1
     Nav_NDB=2
@@ -443,14 +450,12 @@ class NavType(IntEnum):
     Nav_LatLon=2048
     Nav_TACAN=4096
 
-NAVAID_TYPE = [xp.Nav_NDB, xp.Nav_VOR, xp.Nav_DME, xp.Nav_Fix]
-
 @dataclass
 class NavAid:
     name: str
     lat: float
     lon: float
-    navType: NavType
+    navType: NAVAID_TYPE
     navAidId: str
     height: float = 0.0
     heading: float = 0.0
@@ -857,6 +862,17 @@ class PythonInterface:
 
         self.custom_chocks = None
 
+        # navaids
+        self.navaid_freqs = []
+        self.navaids: Dict[str, NavAid] = {}
+        self.navaid_counter = 0
+
+        # commands
+        self.commands = ["AirbusFBW/MasterCaut"]  # test
+        self.commandRefs = {}
+        self.commandRefCons = {}
+        self.commandExecs = []
+
         # Working variables
         self._estimated_state = FLIGHT.UNKNOWN
         self._afp = None
@@ -870,8 +886,6 @@ class PythonInterface:
         self.writes = 0
         self.elevs: List[float] = []
         self.speeds: List[float] = []
-        self.navaids: Dict[str, NavAid] = {}
-        self.navaid_counter = 0
 
         # Can be changed in preferences
         self.fdr_info = []
@@ -1360,6 +1374,9 @@ class PythonInterface:
             self.debug(f"install_preferences: added {len(self.fdr_info)} info datarefs", force=True)
 
         self.prefs = newprefs
+        if len(self.commandRefs) > 0:
+            self.uninstall_command_log()
+        self.install_command_log()
         if desc is not None:
             self.debug(f"..{desc} installed", force=True)
 
@@ -1652,24 +1669,86 @@ class PythonInterface:
                 print(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n", file=self.file)
             self.debug(f"stop_recording: stopped at {self.start_time.isoformat()}")
 
+    #
+    # NAVAIDS
+    #
     def write_navaids(self):
+        # On file close, Writes encountered navaids to FDR as comments
         for n in self.navaids.values():
             n.navType = n.navType.name
             print(f"COMM, {n}", file=self.file)
 
     def collect_navaids(self):
+        NAVAID_FREQUENCIES = [
+            "sim/cockpit/radios/adf1_freq_hz",
+            "sim/cockpit/radios/adf2_freq_hz",
+            "sim/cockpit/radios/dme_freq_hz",
+            "sim/cockpit/radios/nav1_freq_hz",
+            "sim/cockpit/radios/nav2_freq_hz",
+        ]
+        NAVAID_CYCLE = [xp.Nav_NDB, xp.Nav_Fix, xp.Nav_VOR, xp.Nav_Fix, xp.Nav_DME, xp.Nav_Fix]
+        # ?? sim/cockpit2/radios/actuators/tac1_channel
+        # ?? sim/cockpit2/radios/actuators/tac2_channel
+        if len(self.navaid_freqs) == 0:
+            for d in NAVAID_FREQUENCIES:
+                fdrd = FDRData.new(dataref=d)
+                fdrd.init()
+                self.navaid_freqs.append(fdrd)
         try:
             # do not always search for several types to find more nav aids around
-            types = NAVAID_TYPE[self.navaid_counter % len(NAVAID_TYPE)]
+            types = NAVAID_CYCLE[self.navaid_counter % len(NAVAID_CYCLE)]
             self.navaid_counter += 1
             navaid = xp.findNavAid(lat=self.fdr_data_by_name.get("latitude").value, lon=self.fdr_data_by_name.get("longitude").value, navType=types)
             if navaid != xp.NAV_NOT_FOUND:
                 d = xp.getNavAidInfo(navaid)
                 k = f"{d.type}:{d.name}"
                 if k not in self.navaids:
-                    c = NavAid(name=d.name, navType=NavType(d.type), lat=d.latitude, lon=d.longitude, height=d.height, frequency=d.frequency, heading=d.heading, navAidId=d.navAidID, reg=d.reg)
+                    c = NavAid(name=d.name, navType=NAVAID_TYPE(d.type), lat=d.latitude, lon=d.longitude, height=d.height, frequency=d.frequency, heading=d.heading, navAidId=d.navAidID, reg=d.reg)
                     self.navaids[k] = c
                     self.debug(f"collect_navaids: {c}")
+
+            for radio in self.navaid_freqs:
+                freq = radio.value
+                # navaid = xp.findNavAid(freq=freq)
+                navaid = xp.findNavAid(lat=self.fdr_data_by_name.get("latitude").value, lon=self.fdr_data_by_name.get("longitude").value, freq=freq)
+                if navaid != xp.NAV_NOT_FOUND:
+                    d = xp.getNavAidInfo(navaid)
+                    k = f"{d.type}:{d.name}"
+                    if k not in self.navaids:
+                        c = NavAid(name=d.name, navType=NAVAID_TYPE(d.type), lat=d.latitude, lon=d.longitude, height=d.height, frequency=d.frequency, heading=d.heading, navAidId=d.navAidID, reg=d.reg)
+                        self.navaids[k] = c
+                        self.debug(f"collect_navaids: R {c}")
         except Exception as e:
             self.debug(f"collect_navaids: error {e}")
             print_exc()
+
+    #
+    # COMMANDS
+    # Monitors command execution
+    #
+    def write_command_execution(self):
+        # On file close, Writes encountered navaids to FDR as comments
+        for c in self.commandExecs:
+            print(f"COMM, Command(name={n['name']}, time={c['time']})", file=self.file)
+
+    def logCommandExecution(self, commandRef, phase, refcon):
+        r = refcon.copy() | {"time": self.simulator_zulu_datetime, "index": self.writes, "phase": phase}
+        self.commandExecs.append(r)
+        self.debug(f"logCommandExecution: {phase} {r}")
+        return 1
+
+    def install_command_log(self):
+        return
+        if len(self.commands) > 0:
+            for c in self.commands:
+                self.commandRefs[c] = xp.findCommand(c)
+                self.commandRefCons[c] = {"command": c}
+                xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c])
+            self.debug("install_command_log: done", force=True)
+
+    def uninstall_command_log(self):
+        if len(self.commandRefs) > 0:
+            for c in self.commandRefs.keys():
+                xp.unregisterCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c])
+            self.commandRefs = {}
+            self.debug("uninstall_command_log: done", force=True)

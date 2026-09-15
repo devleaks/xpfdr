@@ -73,6 +73,37 @@ const AIRCRAFT_ICON = L.icon({
     popupAnchor: [-(AIRCRAFT_ICON_SIZE+2), -(AIRCRAFT_ICON_SIZE+2)] // point from which the popup should open relative to the iconAnchor
 });
 
+const NAVAID_ICON_SIZE = 16
+
+function NAVAID_ICON(navType) {
+    ICON_NAME = {
+        Unknown: "media/userpoint_Closed.svg",
+        Airport: "media/airport.svg",
+        NDB: "media/ndb.svg",
+        VOR: "media/vor.svg",
+        ILS: "media/ils.svg",
+        Localizer: "media/loc.svg",
+        GlideSlope: "media/gls.svg",
+        OuterMarker: "media/userpoint_Airstrip.svg",
+        MiddleMarker: "media/userpoint_Airstrip.svg",
+        InnerMarker: "media/userpoint_Airstrip.svg",
+        Fix: "media/waypoint.svg",
+        DME: "media/dme.svg",
+        LatLon: "media/userpoint_Waypoint.svg",
+        TACAN: "media/userpoint_TACAN.svg",
+    }
+    size = navType == "Airport" ? 2 * NAVAID_ICON_SIZE : NAVAID_ICON_SIZE;
+    return L.icon({
+        iconUrl: ICON_NAME[navType] ? ICON_NAME[navType] : ICON_NAME["Unknown"],
+        iconSize: [size, size], // size of the icon
+        iconAnchor: [Math.round(size/2), Math.round(size/2)], // point of the icon which will correspond to marker's location
+        popupAnchor: [-(size+2), -(size+2)] // point from which the popup should open relative to the iconAnchor
+    });
+}
+
+
+
+
 // Main chart shows speed and altitude (always)
 // Like at flightradar24 and flightaware.
 const SPEED_DATA = "ground_speed";  // name of GeoJSON feature property for speed
@@ -275,6 +306,16 @@ function parseGeoJSONFile(text) {
     return JSON.parse(text);
 }
 
+function navaid_props(props) {
+    let s = "NAVAID <b>" + props["navAidId"] + "</b><br/>";
+    Object.keys(props).forEach( (p) => {
+        if (["id", "reg", "navAidId"].indexOf(p) == -1) {
+            s += "<b>" + p.replaceAll("_", " ") + "</b>: <i>" + props[p] + "</i><br/>";
+        }
+    });
+    return s
+}
+
 function print_props(props) {
     let s = "<b>UTC Time " + props["UTC Time"].substr(11,12) + "</b><br/>";
     Object.keys(props).forEach( (p) => {
@@ -313,7 +354,9 @@ function buildMap(text, filetype) {
     } else {
         geojson = parseGeoJSONFile(text);
     }
-    pointFeatures = geojson.features.filter((f) => f.geometry.type == "Point");
+
+    // flight path
+    pointFeatures = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("_raw_ts") > -1)
     latlngs = pointFeatures.map((f) => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
     let markers = pointFeatures.map( (f) => {
         m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
@@ -327,6 +370,19 @@ function buildMap(text, filetype) {
         m.bindPopup(print_props(f.properties));
         return m;
     });
+
+    // navaids
+    navaidFeatures = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("navType") > -1)
+    let navaid_latlngs = navaidFeatures.map((f) => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
+    let navaids = navaidFeatures.map( (f) => {
+        m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
+            icon: NAVAID_ICON(f.properties["navType"])
+        })
+        m.bindTooltip(f.properties["navAidId"]);
+        m.bindPopup(navaid_props(f.properties));
+        return m;
+    });
+
     // Start leaflet
     let avglat = pointFeatures.reduce( (acc, f) => acc + f.geometry.coordinates[1], 0) / pointFeatures.length;
     let avglon = pointFeatures.reduce( (acc, f) => acc + f.geometry.coordinates[0], 0) / pointFeatures.length;
@@ -347,6 +403,9 @@ function buildMap(text, filetype) {
 
     // add interaction "invisible" points
     markers.forEach((m) => { m.addTo(map); })
+
+    // add nav aids
+    navaids.forEach((m) => { m.addTo(map); })
 
     // guess properties list from first point feature
     const f = pointFeatures[0];
