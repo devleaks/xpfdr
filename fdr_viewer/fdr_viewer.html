@@ -187,8 +187,23 @@ class FDRData {
     }
 }
 
+class NavAid {
+    constructor(name, lat, lon, navType, navAidId, height, heading, frequency, reg) {
+        this.name = name
+        this.lat = lat
+        this.lon = lon
+        this.navType = navType
+        this.navAidId = navAidId
+        this.height = height
+        this.heading = heading
+        this.frequency = frequency
+        this.reg = reg
+    }
+}
+
 function parseFDRfile(text) {
     const fdr_data_definition = new RegExp("FDRData\\((name=(?<name>[^,]*)),[\\s]*(dataref=(?<dataref>[^,]*)),[\\s]*(pyslice=(?<pyslice>[^,]*)),[\\s]*(_indices=(?<_indices>[^,]*)),[\\s]*(callback=(?<callback>[^,]*)),[\\s]*(unit=(?<unit>[^,]*)),[\\s]*(force_datatype=(?<force_datatype>[^,]*)),[\\s]*(factor=(?<factor>[^,]*))[\\s]*\\)");
+    const navaid_definition = new RegExp("NavAid\\((name=(?<name>[^,]*)),[\\s]*(lat=(?<lat>[^,]*)),[\\s]*(lon=(?<lon>[^,]*)),[\\s]*(navType=(?<navType>[^,]*)),[\\s]*(navAidId=(?<navAidId>[^,]*)),[\\s]*(height=(?<height>[^,]*)),[\\s]*(heading=(?<heading>[^,]*)),[\\s]*(frequency=(?<frequency>[^,]*)),[\\s]*(reg=(?<reg>[^,]*))[\\s]*\\)");
 
     let lines = text.split("\n");
     // console.log(lines.length);
@@ -210,6 +225,7 @@ function parseFDRfile(text) {
     let date = new Date();
     let data = Array();
     let fdr_data = Array();
+    let navaids = Array();
     let columns = Array();
     let fc = Array();
     let count = 0;
@@ -232,7 +248,8 @@ function parseFDRfile(text) {
         if (DATA_KEYWORDS.indexOf(line[0].trim()) > -1) {
             if (line[0].trim() == "COMM") {
                 let a = line.slice(1).join(",").trim();
-                a = a.replace("'", "")
+                let b = a;
+                a = a.replaceAll("'", "")
                 if (a.startsWith("FDRData(")) {
                     let m = fdr_data_definition.exec(a);
                     if (m != undefined) {
@@ -248,6 +265,23 @@ function parseFDRfile(text) {
                         );
                         fdr_data.push(d);
                         // console.log(d);
+                    }
+                } else if (a.startsWith("NavAid(")) {
+                    let m = navaid_definition.exec(a);
+                    if (m != undefined) {
+                        let d = new NavAid(
+                            m.groups["name"].replaceAll('"', ""),
+                            parseFloat(m.groups["lat"]),
+                            parseFloat(m.groups["lon"]),
+                            m.groups["navType"],
+                            m.groups["navAidId"],
+                            parseFloat(m.groups["height"]),
+                            parseFloat(m.groups["heading"]),
+                            parseFloat(m.groups["frequency"])/100,
+                            parseFloat(m.groups["reg"])
+                        );
+                        navaids.push(d);
+                        console.log(d);
                     }
                 } else if (a.startsWith("UTC")) {
                     columns = a.split(",");
