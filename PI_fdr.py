@@ -257,7 +257,7 @@ class FDRData:
                 self.dataref = whole_dref
                 # print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, {self.pyslice} -> {self.indices})")
                 print(f"{NAME} {VERSION}::FDRData.init: registered {whole_dref}[{self.indices}]) *** EXPERIMENTAL/SLICE")
-                self.info()
+                # self.info()
                 return True
             if "[" in whole_dref:
                 s = whole_dref[whole_dref.index("[") + 1 : whole_dref.index("]")]
@@ -297,7 +297,6 @@ class FDRData:
         else:
             info += f"::{self.dref.types[0].replace('_array', '').replace('data', 'byte')}"
         print(f"{NAME} {VERSION}::FDRData.info: {info}")
-        self.fetched()
 
     def fetched(self):
         if self.dref is None:
@@ -868,7 +867,7 @@ class PythonInterface:
         self.navaid_counter = 0
 
         # commands
-        self.commands = ["AirbusFBW/MasterCaut"]  # test
+        self.commands = ["sim/map/show_current"]  # test
         self.commandRefs = {}
         self.commandRefCons = {}
         self.commandExecs = []
@@ -1373,6 +1372,11 @@ class PythonInterface:
                 self.fdr_info.append(f)
             self.debug(f"install_preferences: added {len(self.fdr_info)} info datarefs", force=True)
 
+        # commands
+        cmds = newprefs.get("commands", {})
+        if len(cmds) > 0:
+            self.commands = cmds
+
         self.prefs = newprefs
         if len(self.commandRefs) > 0:
             self.uninstall_command_log()
@@ -1664,7 +1668,8 @@ class PythonInterface:
             xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 1)
             self.recorderFL = None
             if self.file is not None:
-                self.write_navaids()
+                self.save_navaids()
+                self.save_command_execution()
                 print(f"\n\nCOMM, end recording on {self.system_now_datetime.isoformat()} ({self.writes} writes)", file=self.file)
                 print(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n", file=self.file)
             self.debug(f"stop_recording: stopped at {self.start_time.isoformat()}")
@@ -1672,7 +1677,7 @@ class PythonInterface:
     #
     # NAVAIDS
     #
-    def write_navaids(self):
+    def save_navaids(self):
         # On file close, Writes encountered navaids to FDR as comments
         for n in self.navaids.values():
             n.navType = n.navType.name
@@ -1696,9 +1701,11 @@ class PythonInterface:
                 self.navaid_freqs.append(fdrd)
         try:
             # do not always search for several types to find more nav aids around
+            lat = self.fdr_data_by_name.get("latitude").value
+            lon = self.fdr_data_by_name.get("longitude").value
             types = NAVAID_CYCLE[self.navaid_counter % len(NAVAID_CYCLE)]
             self.navaid_counter += 1
-            navaid = xp.findNavAid(lat=self.fdr_data_by_name.get("latitude").value, lon=self.fdr_data_by_name.get("longitude").value, navType=types)
+            navaid = xp.findNavAid(lat=lat, lon=lon, navType=types)
             if navaid != xp.NAV_NOT_FOUND:
                 d = xp.getNavAidInfo(navaid)
                 k = f"{d.type}:{d.name}"
@@ -1709,15 +1716,18 @@ class PythonInterface:
 
             for radio in self.navaid_freqs:
                 freq = radio.value
-                # navaid = xp.findNavAid(freq=freq)
-                navaid = xp.findNavAid(lat=self.fdr_data_by_name.get("latitude").value, lon=self.fdr_data_by_name.get("longitude").value, freq=freq)
-                if navaid != xp.NAV_NOT_FOUND:
-                    d = xp.getNavAidInfo(navaid)
-                    k = f"{d.type}:{d.name}"
-                    if k not in self.navaids:
-                        c = NavAid(name=d.name, navType=NAVAID_TYPE(d.type), lat=d.latitude, lon=d.longitude, height=d.height, frequency=d.frequency, heading=d.heading, navAidId=d.navAidID, reg=d.reg)
-                        self.navaids[k] = c
-                        self.debug(f"collect_navaids: R {c}")
+                if freq is not None:
+                    if freq > 80000:
+                        freq = freq / 100
+                    # navaid = xp.findNavAid(freq=freq)
+                    navaid = xp.findNavAid(lat=lat, lon=lon, freq=freq)
+                    if navaid != xp.NAV_NOT_FOUND:
+                        d = xp.getNavAidInfo(navaid)
+                        k = f"{d.type}:{d.name}"
+                        if k not in self.navaids:
+                            c = NavAid(name=d.name, navType=NAVAID_TYPE(d.type), lat=d.latitude, lon=d.longitude, height=d.height, frequency=d.frequency, heading=d.heading, navAidId=d.navAidID, reg=d.reg)
+                            self.navaids[k] = c
+                            self.debug(f"collect_navaids: R {freq} {c}")
         except Exception as e:
             self.debug(f"collect_navaids: error {e}")
             print_exc()
@@ -1726,24 +1736,28 @@ class PythonInterface:
     # COMMANDS
     # Monitors command execution
     #
-    def write_command_execution(self):
+    def save_command_execution(self):
         # On file close, Writes encountered navaids to FDR as comments
         for c in self.commandExecs:
-            print(f"COMM, Command(name={n['name']}, time={c['time']})", file=self.file)
+            print(f"COMM, Command(name='{c['command']}', phase={c['phase']}, index={c['index']}, time='{c['time']}')", file=self.file)
 
     def logCommandExecution(self, commandRef, phase, refcon):
+        RECORD_PHASE = [2]
         r = refcon.copy() | {"time": self.simulator_zulu_datetime, "index": self.writes, "phase": phase}
-        self.commandExecs.append(r)
-        self.debug(f"logCommandExecution: {phase} {r}")
+        if phase in RECORD_PHASE:
+            self.commandExecs.append(r)
+            self.debug(f"logCommandExecution: {phase} {r}")
         return 1
 
     def install_command_log(self):
-        return
         if len(self.commands) > 0:
             for c in self.commands:
                 self.commandRefs[c] = xp.findCommand(c)
-                self.commandRefCons[c] = {"command": c}
-                xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c])
+                if self.commandRefs[c] is not None:
+                    self.commandRefCons[c] = {"command": c}
+                    # xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=1, refCon=self.commandRefCons[c])
+                    xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c])
+                    self.debug(f"install_command_log: installed {c}  *** EXPERIMENTAL/COMMAND")
             self.debug("install_command_log: done", force=True)
 
     def uninstall_command_log(self):
