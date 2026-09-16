@@ -27,8 +27,9 @@ Files are named after the start time of the record.
 
 ### FDR File Format
 
-FDR slightly diverge from "formal" FDR v3 and v4 format by allowing more precise
-time indication by allowing a fractional part to seconds (milliseconds or microseconds).
+FDR slightly diverge from "formal" FDR v3 and v4 format
+by allowing a fractional part to seconds (milliseconds or microseconds)
+for more precision.
 
 
 ### FDR Meta Data
