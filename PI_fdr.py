@@ -49,6 +49,7 @@ CHANGELOG
 1.3.0 08-SEP-2026 Added Airbus ECAM flight phase detection on ToLiss Airbus aircrafts.
 1.4.0 14-SEP-2026 Added navaid log
 1.5.0 15-SEP-2026 Register command executions
+1.5.1 15-SEP-2026 Display command execution on map
 
 """
 
@@ -98,7 +99,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 SHOW_TRACE = True
 NAME = "FDR"
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 DESCRIPTION = "Flight Data Recordder"
 
 FDR_MENU = "Start or stop FDR"
@@ -268,12 +269,12 @@ class FDRData:
                     self.dref = find_dataref(whole_dref)
                     # print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, '{s}' -> {self._indices}")
                     self.dataref = whole_dref
-                    self.info()
+                    # self.info()
                     return True
                 # else:
                 #     print(f"{NAME} {VERSION}::FDRData.init: unique index: {whole_dref}")
             self.dref = find_dataref(whole_dref)
-            self.info()
+            # self.info()
             return self.dref is not None
         except Exception as e:
             print(f"{NAME} {VERSION}::FDRData.init: {whole_dref} init failed: {e}")
@@ -462,6 +463,15 @@ class NavAid:
     reg: bool = False
 
 
+@dataclass
+class Command:
+    name: str
+    when: str
+    index: int
+    phase: int
+    before: int
+
+
 # Collected once for session, displayed in FDR report header
 HEADER = [
     FDRData(name="ACFT", dataref="sim/aircraft/view/acf_relative_path"),
@@ -495,13 +505,18 @@ FDR_DATA = [
 ]
 # Through preferences, user can define a set of fdr_optional datarefs.
 
-# Data needed to estimate flight phases
-FDR_FLIGHT_PHASE = [
+NAVAID_FREQUENCIES = [
+    "sim/cockpit/radios/adf1_freq_hz",
+    "sim/cockpit/radios/adf2_freq_hz",
+    "sim/cockpit/radios/dme_freq_hz",
+    "sim/cockpit/radios/nav1_freq_hz",
+    "sim/cockpit/radios/nav2_freq_hz",
 ]
 
 
 # #############################################################################
 #
+# A I R B U S   F L I G H T   P H A S E
 #
 class AIRBUS_PHASE(IntEnum):
     OFF = 0  # cold and dark
@@ -521,7 +536,7 @@ class AIRBUS_PHASE(IntEnum):
 @dataclass
 class FlightPhase:
     phase: AIRBUS_PHASE
-    when:datetime
+    when: datetime
 
 # Airbus Flight Phase specific thresholds
 # S.I., for A321, may need adjustment on acf model, engines, etc. We'll see later
@@ -570,20 +585,22 @@ class AirbusFlightPhase:
             AIRBUS_PHASE.FIVEMINAFTER: self.test_off,
         }
         self.trace = True # SHOW_TRACE
-        self._sequence = []
-        self._inited = False
         self._e = -1
         self.datarefs = datarefs
         self.alt_reg = alt_reg
         self.spd_reg = spd_reg
         self.had_air_time = airtime
+        self._sequence = []
+        self._inited = False
+        self._initial_phase = None
         self.current = FlightPhase(phase=AIRBUS_PHASE.OFF, when=dt)
-        self._sequence.append(self.current)
-        if self.valid:
-            self.debug("valid", force=True)
-        else:
+
+        if not self.valid:
             self.debug("invalid, may be some dataref missing?", force=True)
-        self.current = self.flight_phase(dt=dt)
+        else:
+            self.debug("valid", force=True)
+            self._sequence.append(self.current)
+            self.current = self.flight_phase(dt=dt)
 
     @property
     def valid(self) -> bool:
@@ -617,6 +634,7 @@ class AirbusFlightPhase:
 
     def flight_phase(self, dt: datetime) -> FlightPhase:
         def set_inited(message) -> FlightPhase:
+            self._initial_phase = self.current
             self._inited = True
             self.debug(f"flight_phase/init: {message}")
             self.debug(f"flight_phase: initialized to {self.current.phase.name}", force=True)
@@ -826,6 +844,12 @@ class AirbusFlightPhase:
     def test_off(self) -> bool:
         self.debug(f"test_off: {self.get_value('elec_pwr', 1)}")
         return self.get_value("elec_pwr", 1) == 0
+
+    def save(self, file):
+        # On file close, Writes encountered navaids to FDR as comments
+        for ph in self._sequence:
+            print(f"COMM, Airbus flight phase {ph.phase.name} {ph.when.isoformat()}", file=file)
+
 #
 #
 # #############################################################################
@@ -1378,9 +1402,6 @@ class PythonInterface:
             self.commands = cmds
 
         self.prefs = newprefs
-        if len(self.commandRefs) > 0:
-            self.uninstall_command_log()
-        self.install_command_log()
         if desc is not None:
             self.debug(f"..{desc} installed", force=True)
 
@@ -1648,6 +1669,7 @@ class PythonInterface:
 
     def start_recording(self):
         if self.file is not None:
+            self.start_command_logging()
             self.start_time = self.simulator_zulu_datetime
             self.last_stop = None
             self.writes = 0
@@ -1664,12 +1686,15 @@ class PythonInterface:
 
     def stop_recording(self):
         if self.recorderFL is not None:
+            self.stop_command_logging()
             xp.destroyFlightLoop(self.recorderFL)
             xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 1)
             self.recorderFL = None
             if self.file is not None:
                 self.save_navaids()
                 self.save_command_execution()
+                if self._afp is not None:
+                    self._afp.save(file=self.file)
                 print(f"\n\nCOMM, end recording on {self.system_now_datetime.isoformat()} ({self.writes} writes)", file=self.file)
                 print(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n", file=self.file)
             self.debug(f"stop_recording: stopped at {self.start_time.isoformat()}")
@@ -1684,13 +1709,8 @@ class PythonInterface:
             print(f"COMM, {n}", file=self.file)
 
     def collect_navaids(self):
-        NAVAID_FREQUENCIES = [
-            "sim/cockpit/radios/adf1_freq_hz",
-            "sim/cockpit/radios/adf2_freq_hz",
-            "sim/cockpit/radios/dme_freq_hz",
-            "sim/cockpit/radios/nav1_freq_hz",
-            "sim/cockpit/radios/nav2_freq_hz",
-        ]
+        if not self.recorder_running:
+            return
         NAVAID_CYCLE = [xp.Nav_NDB, xp.Nav_Fix, xp.Nav_VOR, xp.Nav_Fix, xp.Nav_DME, xp.Nav_Fix]
         # ?? sim/cockpit2/radios/actuators/tac1_channel
         # ?? sim/cockpit2/radios/actuators/tac2_channel
@@ -1739,30 +1759,37 @@ class PythonInterface:
     def save_command_execution(self):
         # On file close, Writes encountered navaids to FDR as comments
         for c in self.commandExecs:
-            print(f"COMM, Command(name='{c['command']}', phase={c['phase']}, index={c['index']}, time='{c['time']}')", file=self.file)
+            print(f"COMM, {c}", file=self.file)
 
     def logCommandExecution(self, commandRef, phase, refcon):
         RECORD_PHASE = [2]
-        r = refcon.copy() | {"time": self.simulator_zulu_datetime, "index": self.writes, "phase": phase}
         if phase in RECORD_PHASE:
-            self.commandExecs.append(r)
-            self.debug(f"logCommandExecution: {phase} {r}")
+            c = Command(name=refcon["command"], before=refcon["before"], phase=phase, index=self.writes, when=self.simulator_zulu_datetime.isoformat())
+            self.commandExecs.append(c)
+            self.debug(f"logCommandExecution: {c}")
         return 1
 
-    def install_command_log(self):
+    def start_command_logging(self):
         if len(self.commands) > 0:
             for c in self.commands:
                 self.commandRefs[c] = xp.findCommand(c)
                 if self.commandRefs[c] is not None:
-                    self.commandRefCons[c] = {"command": c}
-                    # xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=1, refCon=self.commandRefCons[c])
-                    xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c])
-                    self.debug(f"install_command_log: installed {c}  *** EXPERIMENTAL/COMMAND")
-            self.debug("install_command_log: done", force=True)
+                    self.commandRefCons[c] = {"command": c, "before": 1}
+                    xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=1, refCon=self.commandRefCons[c])
+                    # self.commandRefCons[c+"A"] = {"command": c, "before": 0}
+                    # xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c+"A"])
+                    self.debug(f"start_command_logging: installed {c} *** EXPERIMENTAL/COMMAND")
+                else:
+                    del self.commandRefs[c]
+            self.debug(f"start_command_logging: {len(self.commandRefs)} done", force=True)
 
-    def uninstall_command_log(self):
+    def stop_command_logging(self):
         if len(self.commandRefs) > 0:
-            for c in self.commandRefs.keys():
-                xp.unregisterCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c])
+            for c in self.commands:
+                if c in self.commandRefs:
+                    xp.unregisterCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=1, refCon=self.commandRefCons[c])
+                    self.debug(f"stop_command_logging: uninstalled {c}")
+                    # xp.unregisterCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c+"A"])
+                    # self.debug(f"stop_command_logging: uninstalled {c+"A"}")
             self.commandRefs = {}
-            self.debug("uninstall_command_log: done", force=True)
+            self.debug("stop_command_logging: done", force=True)

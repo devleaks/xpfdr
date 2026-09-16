@@ -46,7 +46,7 @@
 // Ideas, to dos, etc.
 // When zooming, sync all charts
 // When zooming, set 2 carets on min, max on path on map
-const VERSION = "1.1.0"
+const VERSION = "1.2.0"
 // File types for FDR: GeoJSON
 const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", ""]
 // Each point in the geojson file will be represented by this almost transparent icon.
@@ -91,6 +91,7 @@ function NAVAID_ICON(navType) {
         DME: "media/dme.svg",
         LatLon: "media/userpoint_Waypoint.svg",
         TACAN: "media/userpoint_TACAN.svg",
+        Command: "media/empty_circle.svg",
     }
     size = navType == "Airport" ? 2 * NAVAID_ICON_SIZE : NAVAID_ICON_SIZE;
     return L.icon({
@@ -236,6 +237,7 @@ function parseFDRfile(text) {
     let data = Array();
     let fdr_data = Array();
     let navaids = Array();
+    let commands = Array();
     let columns = Array();
     let fc = Array();
     let count = 0;
@@ -293,6 +295,24 @@ function parseFDRfile(text) {
                     };
                     navaids.push(d)
                     console.log(d)
+                } else if (a.startsWith("Command(")) {
+                    let params = nameValue(a)
+                    let d = {
+                        type: "Feature",
+                        geometry: {
+                            type: "Point",
+                            coordinates: [0.0, 0.0]  // geometry: pointFeatures[params["index"]]["geometry"],
+                        },
+                        "properties": {
+                            command: params["name"],
+                            "UTC Time": params["when"],
+                            index: parseInt(params["index"]),
+                            phase: parseInt(params["phase"]),
+                            before: parseInt(params["before"])
+                        }
+                    };
+                    commands.push(d)
+                    console.log(d)
                 } else if (a.startsWith("UTC")) {
                     columns = a.split(",");
                     for(j=0;j<columns.length;j++) {
@@ -335,7 +355,7 @@ function parseFDRfile(text) {
         fc.push(f);
         i++;
     }
-    fc = fc.concat(navaids);
+    fc = fc.concat(navaids, commands);
     let geojson = {
         type: "FeatureCollection",
         features: fc
@@ -361,7 +381,17 @@ function navaid_props(props) {
     return s
 }
 
-function print_props(props) {
+function command_props(props) {
+    let s = "";
+    Object.keys(props).forEach( (p) => {
+        if (["id"].indexOf(p) == -1) {
+            s += "<b>" + p.replaceAll("_", " ") + "</b>: <i>" + props[p] + "</i><br/>";
+        }
+    });
+    return s
+}
+
+function point_props(props) {
     let s = "<b>UTC Time " + props["UTC Time"].substr(11,12) + "</b><br/>";
     Object.keys(props).forEach( (p) => {
         if (["_raw_ts", "id", "UTC Time"].indexOf(p) == -1) {
@@ -403,28 +433,39 @@ function buildMap(text, filetype) {
     // flight path
     pointFeatures = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("_raw_ts") > -1)
     latlngs = pointFeatures.map((f) => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
-    let markers = pointFeatures.map( (f) => {
+    let points = pointFeatures.map( (f) => {
         m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
             icon: TRANSPARENT_ICON
         })
         m.on("mouseover", function() {
             moveMapCursor(f.id);
             moveChartCursor(f.id);
-        })
+        });
         m.bindTooltip(f.properties["UTC Time"].substr(11,12));
-        m.bindPopup(print_props(f.properties));
+        m.bindPopup(point_props(f.properties));
         return m;
     });
 
     // navaids
     navaidFeatures = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("navType") > -1)
-    let navaid_latlngs = navaidFeatures.map((f) => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
     let navaids = navaidFeatures.map( (f) => {
         m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
             icon: NAVAID_ICON(f.properties["navType"])
-        })
+        });
         m.bindTooltip(f.properties["navAidId"]);
         m.bindPopup(navaid_props(f.properties));
+        return m;
+    });
+
+    // commands
+    commandFeatures = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("command") > -1)
+    let commands = commandFeatures.map( (f) => {
+        f.geometry = pointFeatures[f.properties["index"]]["geometry"]
+        m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
+            icon: NAVAID_ICON("Command")
+        });
+        m.bindTooltip(f.properties.command);
+        m.bindPopup(command_props(f.properties));
         return m;
     });
 
@@ -447,10 +488,13 @@ function buildMap(text, filetype) {
     }).addTo(map);
 
     // add interaction "invisible" points
-    markers.forEach((m) => { m.addTo(map); })
+    points.forEach((m) => { m.addTo(map); })
 
     // add nav aids
     navaids.forEach((m) => { m.addTo(map); })
+
+    // add command occurences
+    commands.forEach((m) => { m.addTo(map); })
 
     // guess properties list from first point feature
     const f = pointFeatures[0];

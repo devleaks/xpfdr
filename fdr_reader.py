@@ -6,7 +6,7 @@ from pprint import pprint
 from enum import Enum
 from traceback import print_exc
 
-from PI_fdr import FDRData, NavAid
+from PI_fdr import FDRData, NavAid, Command
 
 
 HEADER_KEYWORDS = [
@@ -80,6 +80,7 @@ class FDRReader:
     self._last_ts = None
     self.fdr_data = {}
     self.navaids = {}
+    self.commands = []
 
   @property
   def duration(self) -> timedelta:
@@ -104,6 +105,21 @@ class FDRReader:
     # DISA, 0
     # WIND, 270, 2.61
     #
+    def name_values(s):
+      matches = re.findall(r"(\w+)=('.*?'|\".*?\"|\s*\w+\(.*?\)|[^,=\s\)]+)", text)
+      keyval = {}
+      for match in matches:
+         value = match[1].strip(" ,'").strip('"')
+         try:
+           try:
+              value = int(value)
+           except:
+              value = float(value)
+         except:
+            pass
+         keyval[match[0]] = value if value != "None" else None
+      return keyval
+
     header_out = False
 
     if self.lines[0] != "A":
@@ -134,14 +150,10 @@ class FDRReader:
         i += 1
         continue
       elif k in DATA_KEYWORDS and k != "DATA":
-        if k == "COMM":
+        if k == "COMM":  # create meta data for FDR
           if text.startswith("FDRData("):
             try:
-              matches = re.findall(r'(\w+)\s*=\s*(.*?)(?=(\w+\s*=))', text)
-              keyval = {}
-              for match in matches:
-                 value = match[1].strip(" ,'")
-                 keyval[match[0]] = value if value != "None" else None
+              keyval = name_values(text)
               fdrdata = FDRData(**keyval)
               fdrdata.data_index = data_index
               self.fdr_data[fdrdata.name] = fdrdata
@@ -153,24 +165,22 @@ class FDRReader:
             continue
           if text.startswith("NavAid("):
             try:
-              matches = re.findall(r'(\w+)\s*=\s*(.*?)(?=(\w+\s*=))', text)
-              keyval = {}
-              for match in matches:
-                 value = match[1].strip(" ,'").strip('"')
-                 try:
-                   try:
-                      value = int(value)
-                   except:
-                      value = float(value)
-                 except:
-                    pass
-                 keyval[match[0]] = value if value != "None" else None
+              keyval = name_values(text)
               navaid = NavAid(**keyval)
-              k = f"{navaid.navType}:{navaid.name}"
-              self.navaids[k] = navaid
+              navaid_key = f"{navaid.navType}:{navaid.name}"
+              self.navaids[navaid_key] = navaid
               print(navaid)
             except:
               print("failed to create NavAid, skipped", text)
+              print_exc()
+          if text.startswith("Command("):
+            try:
+              keyval = name_values(text)
+              command = Command(**keyval)
+              self.commands.append(command)
+              print(command)
+            except:
+              print("failed to create Command, skipped", text)
               print_exc()
             i += 1
             continue
@@ -306,6 +316,21 @@ class FDRReader:
           "heading": round(n.heading, 1),
           "frequency": n.frequency / 100,
           "reg": n.reg,
+        }
+       })
+    # commands
+    for c in self.commands:
+      feature_index += 1
+      features.append({
+        "type": "Feature",
+        "id": feature_index,
+        "geometry": features[c.index]["geometry"],
+        "properties": {
+          "command": c.name,
+          "UTC Time": c.when,
+          "index": c.index,
+          "phase": c.phase,
+          "before": c.before,
         }
        })
 
