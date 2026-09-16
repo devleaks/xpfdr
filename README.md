@@ -11,19 +11,24 @@ It automatically starts when a movement is detected, it stops when there is no m
 
 Alternatively, it is possible to manually start and stop the recording through the _Start or stop FDR_ Plugin Menu entry.
 An _enabled_ marker (white dot) sits in front of the menu entry when the recorder is running.
-
 It is possible to bind the _Start or stop FDR_ command to a cockpit or joystick button.
 
 When recording, FDR detects and logs nearby navigation aids.
 FDR logs navaids around the aircraft and navaids used by the aircraft
 by finding them through their frequencies.
-It logs navaids of type VOR, DME, NDB, fixes, and airports.
+FDR logs navaids of type VOR, DME, NDB, fixes, and airports.
 
 
 ## Output
 
 FDR recording files are stored in the `<X-Plane 12 Folder>/Output/fdr/` folder.
 Files are named after the start time of the record.
+
+
+### FDR File Format
+
+FDR slightly diverge from "formal" FDR v3 and v4 format by allowing more precise
+time indication by allowing a fractional part to seconds (milliseconds or microseconds).
 
 
 ### FDR Meta Data

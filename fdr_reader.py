@@ -72,7 +72,8 @@ class FDRReader:
     with open(self.filename) as fp:
       self.lines = [l.strip() for l in fp.readlines()]
 
-    self.basedate = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).astimezone()
+    self.basedate = None  # datetime.now(tz=timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    self.basetime = None
     self.meta = {k: list() for k in DATA_KEYWORDS}
     self.units = []
     self.header = []
@@ -85,7 +86,9 @@ class FDRReader:
   @property
   def duration(self) -> timedelta:
     if len(self.data) > 1:
-      return datetime.strptime(self.data[-1][0].strip(), "%H:%M:%S.%f") - datetime.strptime(self.data[0][0].strip(), "%H:%M:%S.%f")
+      if len(self.data[-1][0]) > 8:  # does the time contain a franctional part?
+        return datetime.strptime(self.data[-1][0].strip(), "%H:%M:%S.%f") - datetime.strptime(self.data[0][0].strip(), "%H:%M:%S.%f")
+      return datetime.strptime(self.data[-1][0].strip(), "%H:%M:%S") - datetime.strptime(self.data[0][0].strip(), "%H:%M:%S")
     return timedelta(0)
 
   @property
@@ -126,11 +129,11 @@ class FDRReader:
       print(f"invalid X-Plane FDR file ({self.lines[0]})")
       return False
 
-    if self.lines[1] not in ["3", "4"]:
+    if self.lines[1][0] not in ["3", "4"]:
       print(f"invalid X-Plane FDR file version ({self.lines[1]})")
       return False
 
-    self.fdr_version = int(self.lines[1])
+    self.fdr_version = int(self.lines[1][0])
     print(f"FDR data format version {self.fdr_version}")
 
     i = 2
@@ -147,6 +150,26 @@ class FDRReader:
         if k in self.meta:
           print(f"warning: header keyword {k} value overwritten {self.meta[k]} -> {currline[5:].strip()}")
         self.meta[k] = text
+
+        if k == "DATE":
+          self.basedate = datetime.strptime(text, "%m/%d/%Y").replace(tzinfo=timezone.utc)
+          if self.basetime is not None:
+            t = self.basetime.split(":")
+            self.basedate = self.basedate.replace(hour=int(t[0]), minute=int(t[1]), second=int(t[2]))
+            print("Date and time:", self.basedate.isoformat())
+          else:
+            print("Date:", self.basedate.isoformat())
+
+        if k == "TIME":
+          self.basetime = text
+          if self.basedate is not None:
+            t = text.split(":")
+            self.basedate = self.basedate.replace(hour=int(t[0]), minute=int(t[1]), second=int(t[2]))
+            print("Date and time:", self.basedate.isoformat())
+          else:
+            print("Time:", self.basetime)
+
+
         i += 1
         continue
       elif k in DATA_KEYWORDS and k != "DATA":
@@ -200,20 +223,21 @@ class FDRReader:
 
       if self.fdr_version == 3 and k == "DATA":
         self.data.append([l.strip() for l in data.split(",")])
+        secs = float(self.data[-1][0].strip())
+        self._last_ts = self.basedate + timedelta(seconds=secs)
+        self.data[-1][0] = self._last_ts.strftime("%H:%M:%S.%f")
       else:
         self.data.append([l.strip() for l in currline.split(",")])
-      ts = datetime.strptime(self.data[-1][0].strip(), "%H:%M:%S.%f")
-      self._last_ts = ts.replace(tzinfo=timezone.utc, day=self.basedate.day, month=self.basedate.month, year=self.basedate.year)
+        ts = datetime.strptime(self.data[-1][0].strip(), "%H:%M:%S")
+        if len(self.data[-1][0].strip()) > 8:
+          ts = datetime.strptime(self.data[-1][0].strip(), "%H:%M:%S.%f")
+        self._last_ts = ts.replace(tzinfo=timezone.utc, day=self.basedate.day, month=self.basedate.month, year=self.basedate.year)
       i += 1
 
     if self.has_fdrdata:
     #   print(f"FDRData for {', '.join(self.fdr_data)}")
       if len(self.header) - 1 != len(self.fdr_data):
         print(f"Header column vs FDRData mismatch {len(self.header) - 1}/{len(self.fdr_data)}")
-
-    if "DATE" in self.meta:
-      self.basedate = datetime.strptime(self.meta["DATE"], "%m/%d/%Y").astimezone(tz=timezone.utc)
-      print("Date:", self.basedate.isoformat())
 
     return True
 
@@ -258,11 +282,15 @@ class FDRReader:
           ele = self.fdr_data.get("altitude")  # desperate
       if ele is not None:
         alt = float(row[ele.data_index]) / 3.28084
+      if alt is None:
+        alt = float(row[3])
       if altitude and alt is not None:
         p.append(alt)
       lines.append(p)
       # time
-      ts = datetime.strptime(row[0].strip(), "%H:%M:%S.%f")
+      ts = datetime.strptime(row[0].strip(), "%H:%M:%S")
+      if len(row[0].strip()) > 8:
+        ts = datetime.strptime(row[0].strip(), "%H:%M:%S.%f")
       ts = ts.replace(tzinfo=timezone.utc, day=self.basedate.day, month=self.basedate.month, year=self.basedate.year)
       # properties
       props = {"id": feature_index, self.header[0]: ts.isoformat(), "_raw_ts": ts.timestamp()}
@@ -400,7 +428,9 @@ class FDRReader:
       print(",".join(["_raw_utc_ts", "utc_time"] + [d for d in self.fdr_data if d in properties]), file=fp)
       # data
       for row in self.data:
-        ts = datetime.strptime(row[0].strip(), "%H:%M:%S.%f")
+        ts = datetime.strptime(row[0].strip(), "%H:%M:%S")
+        if len(row[0].strip()) > 8:
+          ts = datetime.strptime(row[0].strip(), "%H:%M:%S.%f")
         ts = ts.replace(tzinfo=timezone.utc, day=self.basedate.day, month=self.basedate.month, year=self.basedate.year)
         frow = [row[f.data_index] for f in self.fdr_data.values() if f.name in properties]
         print(",".join([str(ts.timestamp()), row[0]]+frow), file=fp)
