@@ -14,6 +14,11 @@ An _enabled_ marker (white dot) sits in front of the menu entry when the recorde
 
 It is possible to bind the _Start or stop FDR_ command to a cockpit or joystick button.
 
+When recording, FDR detects and logs nearby navigation aids.
+FDR logs navaids around the aircraft and navaids used by the aircraft
+by finding them through their frequencies.
+It logs navaids of type VOR, DME, NDB, fixes, and airports.
+
 
 ## Output
 
@@ -55,6 +60,8 @@ description: Demonstration preference file
 frequency: 5
 report_frequency: 200
 chocks: AirbusFBW/Chocks
+commands:
+  - sim/map/show_current
 fdr_info:
   - name: ICAO
     dataref: sim/aircraft/view/acf_ICAO
@@ -90,6 +97,9 @@ fdr_optional:
    as long as the data is available as a dataref.
 
  - `fdr_optional` is a list of data structure that are collected and reported.
+
+ - `commands` is a list of commands, the exection of any of these command in logged.
+   (This is an experimental feature.)
 
 
 ### Collected Data Structure
@@ -221,12 +231,15 @@ In the GeoJSON file, FDR data is added as a list of feature properties along wit
 
 ## Viewer
 
-There is a compagnon web page `frd_viewer.html` to display a GeoJSON formatted FDR file
+There is a compagnon web page `frd_viewer.html` to display either a GeoJSON formatted FDR file
+or a Version 4 FDR file
 in a simple, basic map and charting page.
 
 The viewer is under development.
 
-(It may later read CSV files and/or `.fdr` file directly.)
+If the FDR file has been produced by the plugin,
+it contains additional information and meta data
+that allow for better display of information in the viewer.
 
 
 ## Troubleshooting
