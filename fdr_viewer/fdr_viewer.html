@@ -174,16 +174,15 @@ const DATA_KEYWORDS = [
 
 // Container for data
 class FDRData {
-    constructor(name, dataref, pyslice, callback, unit, force_datatype, factor) {
+    constructor(name, dataref, pyslice, _indices, callback, unit, force_datatype, factor) {
         this.name = name
         this.dataref = dataref
         this.pyslice = pyslice
-        this._indices = null
+        this._indices = _indices
         this.callback = callback
         this.unit = unit
         this.force_datatype = force_datatype
-        this.factor = 1.0
-        this.dref = null
+        this.factor = factor
     }
 }
 
@@ -201,10 +200,21 @@ class NavAid {
     }
 }
 
-function parseFDRfile(text) {
-    const fdr_data_definition = new RegExp("FDRData\\((name=(?<name>[^,]*)),[\\s]*(dataref=(?<dataref>[^,]*)),[\\s]*(pyslice=(?<pyslice>[^,]*)),[\\s]*(_indices=(?<_indices>[^,]*)),[\\s]*(callback=(?<callback>[^,]*)),[\\s]*(unit=(?<unit>[^,]*)),[\\s]*(force_datatype=(?<force_datatype>[^,]*)),[\\s]*(factor=(?<factor>[^,]*))[\\s]*\\)");
-    const navaid_definition = new RegExp("NavAid\\((name=(?<name>[^,]*)),[\\s]*(lat=(?<lat>[^,]*)),[\\s]*(lon=(?<lon>[^,]*)),[\\s]*(navType=(?<navType>[^,]*)),[\\s]*(navAidId=(?<navAidId>[^,]*)),[\\s]*(height=(?<height>[^,]*)),[\\s]*(heading=(?<heading>[^,]*)),[\\s]*(frequency=(?<frequency>[^,]*)),[\\s]*(reg=(?<reg>[^,]*))[\\s]*\\)");
+const KEYVALUEREGEX = /(\w+)=('.*?'|".*?"|\s*\w+\(.*?\)|[^,=\s\)]+)/g;
+function nameValue(s) {
+    let params = {};
+    let match;
+    while ((match = KEYVALUEREGEX.exec(s)) !== null) {
+        const key = match[1];
+        let value = match[2].replace(/,$/, "");
+        value = value.replace(/['"]$/, "");
+        value = value.replace(/^['"]/, "");
+        params[key] = value == "None" ? null : value;
+    }
+    return params;    
+}
 
+function parseFDRfile(text) {
     let lines = text.split("\n");
     // console.log(lines.length);
     let first_line = lines[0].split("\r");
@@ -248,44 +258,41 @@ function parseFDRfile(text) {
         if (DATA_KEYWORDS.indexOf(line[0].trim()) > -1) {
             if (line[0].trim() == "COMM") {
                 let a = line.slice(1).join(",").trim();
-                let b = a;
-                a = a.replaceAll("'", "")
                 if (a.startsWith("FDRData(")) {
-                    let m = fdr_data_definition.exec(a);
-                    if (m != undefined) {
-                        let d = new FDRData(
-                            m.groups["name"],
-                            m.groups["dataref"],
-                            m.groups["pyslice"],
-                            m.groups["_indices"],
-                            m.groups["callback"],
-                            m.groups["unit"],
-                            m.groups["force_datatype"],
-                            m.groups["factor"]
-                        );
-                        fdr_data.push(d);
-                        // console.log(d);
-                    }
+                    let params = nameValue(a)
+                    let d = new FDRData(
+                        params["name"],
+                        params["dataref"],
+                        params["pyslice"],
+                        params["_indices"],
+                        params["callback"],
+                        params["unit"],
+                        params["force_datatype"],
+                        params["factor"]
+                    );
+                    fdr_data.push(d);
+                    console.log(d);
                 } else if (a.startsWith("NavAid(")) {
-                    let m = navaid_definition.exec(a);
-                    if (m != undefined) {
-                        navaids.push({
-                            type: "Feature",
-                            geometry: {
-                                type: "Point",
-                                coordinates: [parseFloat(m.groups["lon"]), parseFloat(m.groups["lat"])]
-                            },
-                            "properties": {
-                                name: m.groups["name"].replaceAll('"', ""),
-                                navType: m.groups["navType"].replace("Nav_", ""),
-                                navAidId: m.groups["navAidId"],
-                                height: parseFloat(m.groups["height"]),
-                                heading: parseFloat(m.groups["heading"]),
-                                frequency: parseFloat(m.groups["frequency"])/100,
-                                reg: parseFloat(m.groups["reg"])
-                            }
-                        })
-                    }
+                    let params = nameValue(a)
+                    let d = {
+                        type: "Feature",
+                        geometry: {
+                            type: "Point",
+                            coordinates: [parseFloat(params["lon"]), parseFloat(params["lat"])]
+                        },
+                        "properties": {
+                            name: params["name"].replaceAll('"', ""),
+                            navType: params["navType"].replace("Nav_", ""),
+                            navAidId: params["navAidId"],
+                            height: parseFloat(params["height"]),
+                            heading: parseFloat(params["heading"]),
+                            frequency: parseFloat(params["frequency"]) > 80000 ?
+                                            parseFloat(params["frequency"])/100 : parseFloat(params["frequency"]),
+                            reg: parseFloat(params["reg"])
+                        }
+                    };
+                    navaids.push(d)
+                    console.log(d)
                 } else if (a.startsWith("UTC")) {
                     columns = a.split(",");
                     for(j=0;j<columns.length;j++) {

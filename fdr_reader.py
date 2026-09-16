@@ -1,11 +1,13 @@
 import sys
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from pprint import pprint
 from enum import Enum
 from traceback import print_exc
 
 from PI_fdr import FDRData, NavAid
+
 
 HEADER_KEYWORDS = [
   "ACFT",
@@ -135,25 +137,40 @@ class FDRReader:
         if k == "COMM":
           if text.startswith("FDRData("):
             try:
-              print(text)
-              fdrdata = eval(text)
+              matches = re.findall(r'(\w+)\s*=\s*(.*?)(?=(\w+\s*=))', text)
+              keyval = {}
+              for match in matches:
+                 value = match[1].strip(" ,'")
+                 keyval[match[0]] = value if value != "None" else None
+              fdrdata = FDRData(**keyval)
               fdrdata.data_index = data_index
               self.fdr_data[fdrdata.name] = fdrdata
-              # print(t)
+              print(fdrdata)
             except:
-              print("failed to eval(), skipped", text)
+              print("failed to create FDRData, skipped", text)
               print_exc()
             i += 1
             continue
           if text.startswith("NavAid("):
             try:
-              print(text)
-              navaid = eval(text)
+              matches = re.findall(r'(\w+)\s*=\s*(.*?)(?=(\w+\s*=))', text)
+              keyval = {}
+              for match in matches:
+                 value = match[1].strip(" ,'").strip('"')
+                 try:
+                   try:
+                      value = int(value)
+                   except:
+                      value = float(value)
+                 except:
+                    pass
+                 keyval[match[0]] = value if value != "None" else None
+              navaid = NavAid(**keyval)
               k = f"{navaid.navType}:{navaid.name}"
               self.navaids[k] = navaid
-              # print(t)
+              print(navaid)
             except:
-              print("failed to eval(), skipped", text)
+              print("failed to create NavAid, skipped", text)
               print_exc()
             i += 1
             continue
