@@ -43,12 +43,21 @@
         </div>
     </div>        
 <script language="javascript">
-// Ideas, to dos, etc.
-// When zooming, sync all charts
-// When zooming, set 2 carets on min, max on path on map
-const VERSION = "1.2.0"
+const VERSION = "1.4.0"
+/*
+CHANGELOG
+
+1.0.0 07-SEP-2026 Initial reelase
+1.3.0 17-SEP-2026 Display command execution on map
+1.4.0 17-SEP-2026 Now load CSV file, especially those produced by fdr_writer.
+
+TO DO
+ - When zooming, sync all charts
+ - When zooming, set 2 carets on min, max on path on map
+
+*/
 // File types for FDR: GeoJSON
-const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", ""]
+const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", "text/csv", ""]
 // Each point in the geojson file will be represented by this almost transparent icon.
 // The goal is to provide interactivity and react when the icon is hover'ed.
 // If number of point exceeds a threshold, a sampling should be used.
@@ -215,24 +224,94 @@ function nameValue(s) {
     return params;    
 }
 
-function parseFDRfile(text) {
+function parseCSVfile(text) {
+    let geojson = {}
     let lines = text.split("\n");
-    // console.log(lines.length);
-    let first_line = lines[0].split("\r");
-    if (first_line[0] != "A") {
-        console.log("invalid X-Plane FDR file", first_line[0]);
+    let columns = lines[0].toLowerCase().split(","); // assumes first line is column header
+    let lat_idx = columns.indexOf("latitude");
+    let lon_idx = columns.indexOf("longitude");
+    if (lat_idx == -1 || lon_idx == -1) {
+        console.log("No latitude and longitude in file");
+        return {}
+    }
+    console.log(lat_idx, lon_idx);
+    let alt_idx = columns.indexOf("altitude");
+    let i = 1;
+    let count = 0;
+    let fc = []
+    columns = lines[0].toLowerCase().split(","); // assumes first line is column header
+    while(i < lines.length) {
+        if (lines[i].trim() == "") {
+            i++;
+            continue;
+        }
+        let line = lines[i].trim().split(",");
+        let coords = [parseFloat(line[lon_idx]), parseFloat(line[lat_idx])]
+        if (alt_idx > -1) {
+            coords.push(parseFloat(line[alt_idx]))
+        }
+        console.log(line[0])
+        d = new Date(parseFloat(line[0]));
+        console.log(d)
+        let props = {
+            "UTC Time": d.toISOString(),
+            "_raw_ts": d.getTime(),
+            "elevation": line[2],
+        }
+        for(j=1; j < line.length; j++) {
+            props[j < columns.length ? columns[j] : "prop" + j] = isNaN(line[j]) ? line[j] : parseFloat(line[j]);
+        }
+        let p = {
+            type: "Feature",
+            geometry: {
+                type: "Point",
+                coordinates: coords
+            },
+            "properties": props
+        }
+        console.log(p)
+        fc.push(p);
+        i++;
+    }
+    geojson = {
+        type: "FeatureCollection",
+        features: fc
+    }
+    return geojson;
+}
+
+function parseFDRfile(text) {
+    let arch = String.fromCharCode(text.charCodeAt(0))
+    if (["A", "I"].indexOf(arch) == -1) {
+        console.log("invalid X-Plane FDR file architecture", arch);
         return {};
     }
+    console.log("FDR file architecture", arch);
 
-    if (["3", "4"].indexOf(first_line[1]) == -1) {
-        console.log("invalid X-Plane FDR file version", first_line[1]);
+    let cr = text.charCodeAt(1)
+    if (cr != 13) {
+        console.log("end of first line should be \\r (13); got", cr);
+    }
+    let nl = text.charCodeAt(2)
+    if (nl == 10) { // ok...
+        console.log("got extra \\l (10)", nl);
+        nl = text.charCodeAt(3)
+    }
+    if (nl != 51 && nl != 52) {  // "3" and "4"
+        console.log("invalid X-Plane FDR file version", String.fromCharCode(nl), nl);
         return {};
     }
-
-    let fdr_version = parseInt(first_line[1]);
+    let fdr_version = nl - 48;
+    if ([3, 4].indexOf(fdr_version) == -1) {
+        console.log("invalid X-Plane FDR file version", fdr_version);
+        return {};
+    }
     console.log("FDR data format version", fdr_version);
 
-    let i = 1;
+    let lines = text.split(arch == "A" ? "\n" : "\l");
+    console.log("records", lines.length);
+
+    let i = 2;
     let date = new Date();
     let data = Array();
     let fdr_data = Array();
@@ -326,13 +405,23 @@ function parseFDRfile(text) {
             continue;
         }
         // raw
-        data.push(line[0] == "DATA" ? line.slice(1) : line);
+        if (line[0] == "DATA") {
+            line = line.slice(1)
+        }
+        data.push(line);
         // GeoJSON Feature
-        let t = line[0].trim().split(":");
-        let ms = Math.round(1000 * (t[2] - Math.round(t[2])))
-        let d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), t[0], t[1], Math.round(t[2]), ms);
-        d.setUTCHours(t[0]);
-        props = {
+        let d;
+        if (fdr_version == 3) {
+            let t = parseInt(line[0].trim());
+            d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, t);
+        } else {
+            let t = line[0].trim().split(":");
+            let ms = Math.round(1000 * (t[2] - Math.round(t[2])))
+            d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), t[0], t[1], Math.round(t[2]), ms);
+            d.setUTCHours(t[0]);
+            console.log("date", date, t, ms, d)
+        }
+        let props = {
             "UTC Time": d.toISOString(),
             "_raw_ts": d.getTime(),
             "elevation": line[2],
@@ -424,7 +513,9 @@ function point_props(props) {
 function buildMap(text, filetype) {
     document.body.style["background-image"] = "none";
     let geojson;
-    if (filetype == "") {
+    if (filetype == "text/csv") {
+        geojson = parseCSVfile(text);
+    } else if (filetype == "") {
         geojson = parseFDRfile(text);
     } else {
         geojson = parseGeoJSONFile(text);
@@ -1013,6 +1104,7 @@ document.documentElement.addEventListener("drop", (e) => {
         buildMap(fr.result, ft);
     };
     if (ALLOWED_FILE_TYPES.indexOf(e.dataTransfer.files[0].type) > -1) {
+        console.log("file type", e.dataTransfer.files[0].type)        
         fr.readAsText(e.dataTransfer.files[0]);
     } else {
         console.log("invalid file type", e.dataTransfer.files[0].type)        

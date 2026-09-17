@@ -104,7 +104,7 @@ fdr_optional:
 
  - `fdr_optional` is a list of data structure that are collected and reported.
 
- - `commands` is a list of commands, the exection of any of these command in logged.
+ - `commands` is a list of commands, expressed as X-Plane path. The execution of any of these command in logged.
    (This is an experimental feature.)
 
 
@@ -243,9 +243,14 @@ in a simple, basic map and charting page.
 
 The viewer is under development.
 
+The layout of charts is automagic, based on the number of featured data.
+
 If the FDR file has been produced by the plugin,
 it contains additional information and meta data
 that allow for better display of information in the viewer.
+
+  - Collected navaids are displayed,
+  - Moment of execution of monitored commands are also shown.
 
 
 ## Troubleshooting

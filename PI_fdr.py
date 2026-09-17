@@ -7,8 +7,8 @@ See Also
     <X-Plane 12 Folder>/Instructions/FDR Example Version 3.fdr
     <X-Plane 12 Folder>/Instructions/FDR Example Version 4.fdr
 
-Header fields permitted (in any order):
-=======================
+Fields permitted (in any order):
+================
 
 COMM: any comment
 
@@ -25,11 +25,13 @@ WARN: time to play a warning sound file, with full directory path from X-Plane i
 TEXT: time & text to be read aloud by computer speech synthesis software (10,Copilot left the cockpit here).
 MARK: time at which a text marker will appear in the time slider (ex: 15,Approach began here).
 EVNT: highlights the flight path at the specified time, for a specified duration (ex: 10.5).
+
 DATA: comma-delimited floating-point numbers that make up the bulk of the .fdr data (see explanation table below)
 
 Keyworkd DATA is optional in FDR Version 4.
 
 Example:
+
 ACFT, Aircraft/Laminar Research/Lancair Evolution/N844X.acf
 TAIL, N844X
 DATE, 01/18/2023
@@ -37,7 +39,15 @@ PRES, 30.01
 DISA, 0
 WIND, 270,15
 
-By convention, last comment before data contains the header column name (FDRData.name)
+COMM time, lat, lon, alt...
+DATA, 1, 2, 3, 4
+
+or (v4)
+
+COMM time, lat, lon, alt...
+12:34:56.789, 2, 3, 4
+
+*By convention*, last comment before data contains the header column name (FDRData.name)
 
 
 CHANGELOG
@@ -65,7 +75,6 @@ from traceback import print_exc
 from typing import Callable, Any, List
 from dataclasses import dataclass
 from enum import IntEnum
-
 
 try:
     import xp
@@ -237,7 +246,7 @@ class FDRData:
 
     @classmethod
     def new(cls, dataref: str):
-        name = dataref[dataref.rindex("/")+1:]
+        name = dataref[dataref.rindex("/") + 1 :]
         return cls(name=name, dataref=dataref)
 
     def init(self) -> bool:
@@ -264,7 +273,7 @@ class FDRData:
                 s = whole_dref[whole_dref.index("[") + 1 : whole_dref.index("]")]
                 if "," in s:
                     self._indices = {int(i) for i in s.replace(" ", "").split(",")}
-                    whole_dref = whole_dref[:whole_dref.index("[")]
+                    whole_dref = whole_dref[: whole_dref.index("[")]
                     # print(f"{NAME} {VERSION}::FDRData.init: array indices currently experimental: {self.name} {self.dataref}")
                     self.dref = find_dataref(whole_dref)
                     # print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, '{s}' -> {self._indices}")
@@ -287,7 +296,7 @@ class FDRData:
             return 0
         info = self.dataref
         if "[" in info:
-            info = info[:info.index("[")]
+            info = info[: info.index("[")]
         if self.is_array:
             l = self.length
             if l is not None:
@@ -364,6 +373,13 @@ class FDRData:
         return 1
 
     @property
+    def writable(self) -> bool:
+        if self.dref is None:
+            print(f"{NAME} {VERSION}::FDRData.writable: {self.dataref} no dref")
+            return False
+        return xp.canWriteDataRef(self.dref)
+
+    @property
     def value_length(self) -> int:
         # return this FDRData value length, 1 for scalar, 0 if None
         if self.dref is None:
@@ -435,20 +451,21 @@ class FDRData:
 
 
 class NAVAID_TYPE(IntEnum):
-    Nav_Unknown=0
-    Nav_Airport=1
-    Nav_NDB=2
-    Nav_VOR=4
-    Nav_ILS=8
-    Nav_Localizer=16
-    Nav_GlideSlope=32
-    Nav_OuterMarker=64
-    Nav_MiddleMarker=128
-    Nav_InnerMarker=256
-    Nav_Fix=512
-    Nav_DME=1024
-    Nav_LatLon=2048
-    Nav_TACAN=4096
+    Nav_Unknown = 0
+    Nav_Airport = 1
+    Nav_NDB = 2
+    Nav_VOR = 4
+    Nav_ILS = 8
+    Nav_Localizer = 16
+    Nav_GlideSlope = 32
+    Nav_OuterMarker = 64
+    Nav_MiddleMarker = 128
+    Nav_InnerMarker = 256
+    Nav_Fix = 512
+    Nav_DME = 1024
+    Nav_LatLon = 2048
+    Nav_TACAN = 4096
+
 
 @dataclass
 class NavAid:
@@ -538,6 +555,7 @@ class FlightPhase:
     phase: AIRBUS_PHASE
     when: datetime
 
+
 # Airbus Flight Phase specific thresholds
 # S.I., for A321, may need adjustment on acf model, engines, etc. We'll see later
 S80KT = 80 * 0.5144444  # m/s
@@ -545,8 +563,8 @@ FAST = 500  # 1 Mach = 340.29m/s, sea level
 A1500FT = 1500 * 0.3048  # m
 A800FT = 800 * 0.3048  # m
 MIN_ABGL = 10.0  # m, must take into account aircraft CG elev ABGL, make higher for A380
-ENG_PWR = 1500 # Thrust in N to assume engine to power
-ENG_OFF = 10 # Thrust in N, minimal to assume engine started
+ENG_PWR = 1500  # Thrust in N to assume engine to power
+ENG_OFF = 10  # Thrust in N, minimal to assume engine started
 FIVEMIN = 300.0  # secs
 
 
@@ -584,7 +602,7 @@ class AirbusFlightPhase:
             AIRBUS_PHASE.SECONDENGSHUTDOWN: self.test_after,
             AIRBUS_PHASE.FIVEMINAFTER: self.test_off,
         }
-        self.trace = True # SHOW_TRACE
+        self.trace = True  # SHOW_TRACE
         self._e = -1
         self.datarefs = datarefs
         self.alt_reg = alt_reg
@@ -706,12 +724,12 @@ class AirbusFlightPhase:
                 next_phase()
                 return self.flight_phase(dt=dt)
 
-            if self.current.phase == AIRBUS_PHASE.ACCEL80KT and self.had_air_time(): # just landed
+            if self.current.phase == AIRBUS_PHASE.ACCEL80KT and self.had_air_time():  # just landed
                 return set_phase(phase=AIRBUS_PHASE.LANDING, message=f"had air time, below {MIN_ABGL}m, above 80kt")
 
             if self.current.phase == AIRBUS_PHASE.LIFTOFF and self.get_value("ABGL", 0) > A1500FT:
                 next_phase()
-                return set_inited("flying above 1500FT") # we're above 1500ft, we cannot say much now
+                return set_inited("flying above 1500FT")  # we're above 1500ft, we cannot say much now
 
             if self.current.phase == AIRBUS_PHASE.LIFTOFF:
                 ## GREY MATTER: Less than 1500FT, but in the air...
@@ -778,7 +796,7 @@ class AirbusFlightPhase:
         for i in range(len(engs)):
             e = engs[i]
             if e > ENG_OFF:
-                if self._e == -1: # remember which one starting
+                if self._e == -1:  # remember which one starting
                     self._e = i
                     self.debug(f"test_engon: engine #{self._e} started")
                 return True
@@ -850,10 +868,10 @@ class AirbusFlightPhase:
         for ph in self._sequence:
             print(f"COMM, Airbus flight phase {ph.phase.name} {ph.when.isoformat()}", file=file)
 
+
 #
 #
 # #############################################################################
-
 
 
 class PythonInterface:
@@ -898,7 +916,6 @@ class PythonInterface:
 
         # Working variables
         self._estimated_state = FLIGHT.UNKNOWN
-        self._afp = None
         self._had_air_time: bool | None = None
         self.last_agl = 0
         self.chocks_removed = None
@@ -910,6 +927,11 @@ class PythonInterface:
         self.elevs: List[float] = []
         self.speeds: List[float] = []
 
+        self._afp = None  # Experimental, ToLiss/Airbus specific
+        self.err_cnt = 0
+        self.err_rst = datetime.now().astimezone()
+        self.err_lst = None
+
         # Can be changed in preferences
         self.fdr_info = []
         self.fdr_optional = []
@@ -918,8 +940,6 @@ class PythonInterface:
         self.report_frequency = max(self.prefs.get("report_frequency", REPORT_FREQUENCY), REPORT_FREQUENCY)
         self.version = self.prefs.get("fdr_version", FDR_VERSION)
         self.arch = self.prefs.get("fdr_arch", FDR_ARCH)
-        if self.version not in [3, 4]:
-            self.version = FDR_VERSION
 
     @property
     def fdr_all_data(self) -> list:
@@ -934,6 +954,30 @@ class PythonInterface:
     def fdr_info_by_name(self) -> dict:
         return {d.name: d for d in self.fdr_info}
 
+    #
+    # ERROR and MISBEHAVIOR
+    #
+    def error(self):
+        self.err_cnt += 1
+        self.err_lst = datetime.now().astimezone()
+
+    def reset_error(self):
+        self.err_cnt = 0
+        self.err_rst = datetime.now().astimezone()
+
+    def has_errors(self):
+        return self.err_cnt > 0
+
+    def has_many_errors(self):
+        ERR_RATE = 1 / self.frequency  # 1 err / frequency seconds
+        if not self.has_errors():
+            return False
+        t = (datetime.now().astimezone() - self.err_lst).total_seconds()
+        return (self.err_cnt / t) >= ERR_RATE
+
+    #
+    # HELPERS
+    #
     @property
     def chocked(self) -> bool:
         c = self.header.get("CHOK") if self.custom_chocks is None else self.custom_chocks
@@ -963,8 +1007,12 @@ class PythonInterface:
         # Are we moving? Are we in the air?
         # Are we moving?
         try:
+            # ################################################
+            #
             if self._afp is not None:
                 dummy = self._afp.flight_phase(dt=self.simulator_zulu_datetime)
+            #
+            # ################################################
 
             gndsp = self.header.get("MOVE").value
             if gndsp is None:  # we don't know...
@@ -1106,16 +1154,9 @@ class PythonInterface:
         if len(self.elevs) > REG_LEN:
             self.elevs = self.elevs[-10:]
 
-    def add_speed(self, dt: datetime, speed: float):
-        # Add (timestamp, elevation) to limited list for regression
-        if type(speed) in [int, float]:
-            self.speeds.append((dt.timestamp(), speed))
-        if len(self.speeds) > REG_LEN:
-            self.speeds = self.speeds[-10:]
-
     def vertical_lr(self) -> tuple:
         # Linear regression on last altitude checkpoints to monitor trend (descending/ascending)
-        # Returns   a, error, number of points, last - olders
+        # Returns   a, error, number of points, last - oldest
         if len(self.elevs) < 3:
             diff = 0 if len(self.elevs) < 2 else self.elevs[-1][1] - self.elevs[0][1]
             return 0.0, 0.0, len(self.elevs), diff
@@ -1129,6 +1170,13 @@ class PythonInterface:
         r2 = ny2 / (len(self.elevs) - 2)
         r = math.sqrt(r2)
         return nxy / math.sqrt(nx2 * ny2) if nx2 != 0.0 and ny2 != 0.0 else 0.0, r, len(self.elevs), self.elevs[-1][1] - self.elevs[0][1]
+
+    def add_speed(self, dt: datetime, speed: float):
+        # Add (timestamp, elevation) to limited list for regression
+        if type(speed) in [int, float]:
+            self.speeds.append((dt.timestamp(), speed))
+        if len(self.speeds) > REG_LEN:
+            self.speeds = self.speeds[-10:]
 
     def speed_lr(self) -> tuple:
         # Linear regression on last speed checkpoints to monitor trend (accelerating/decelerating)
@@ -1410,9 +1458,11 @@ class PythonInterface:
         icao = self.header.get("ICAO").value
         author = self.header.get("AUTH").value
         self.debug(f"install_preferences: {icao} by {author}", force=True)
-        if icao  in ["A321", "A21N"] and author in ["Gliding Kiwi", "GlidingKiwi", "ToLiss"]:
+        if icao in ["A321", "A21N"] and author in ["Gliding Kiwi", "GlidingKiwi", "ToLiss"]:
             all_datarefs_by_name = self.header | self.fdr_info_by_name | self.fdr_data_by_name
-            self._afp = AirbusFlightPhase(dt=self.simulator_zulu_datetime, datarefs=all_datarefs_by_name, alt_reg=self.vertical_lr, spd_reg=self.speed_lr, airtime=self.had_air_time)
+            self._afp = AirbusFlightPhase(
+                dt=self.simulator_zulu_datetime, datarefs=all_datarefs_by_name, alt_reg=self.vertical_lr, spd_reg=self.speed_lr, airtime=self.had_air_time
+            )
             if self._afp.valid:
                 self.debug("install_preferences: AirbusFlightPhase enabled", force=True)
         #
@@ -1730,7 +1780,17 @@ class PythonInterface:
                 d = xp.getNavAidInfo(navaid)
                 k = f"{d.type}:{d.name}"
                 if k not in self.navaids:
-                    c = NavAid(name=d.name, navType=NAVAID_TYPE(d.type), lat=d.latitude, lon=d.longitude, height=d.height, frequency=d.frequency, heading=d.heading, navAidId=d.navAidID, reg=d.reg)
+                    c = NavAid(
+                        name=d.name,
+                        navType=NAVAID_TYPE(d.type),
+                        lat=d.latitude,
+                        lon=d.longitude,
+                        height=d.height,
+                        frequency=d.frequency,
+                        heading=d.heading,
+                        navAidId=d.navAidID,
+                        reg=d.reg,
+                    )
                     self.navaids[k] = c
                     self.debug(f"collect_navaids: {c}")
 
@@ -1745,7 +1805,17 @@ class PythonInterface:
                         d = xp.getNavAidInfo(navaid)
                         k = f"{d.type}:{d.name}"
                         if k not in self.navaids:
-                            c = NavAid(name=d.name, navType=NAVAID_TYPE(d.type), lat=d.latitude, lon=d.longitude, height=d.height, frequency=d.frequency, heading=d.heading, navAidId=d.navAidID, reg=d.reg)
+                            c = NavAid(
+                                name=d.name,
+                                navType=NAVAID_TYPE(d.type),
+                                lat=d.latitude,
+                                lon=d.longitude,
+                                height=d.height,
+                                frequency=d.frequency,
+                                heading=d.heading,
+                                navAidId=d.navAidID,
+                                reg=d.reg,
+                            )
                             self.navaids[k] = c
                             self.debug(f"collect_navaids: R {freq} {c}")
         except Exception as e:
