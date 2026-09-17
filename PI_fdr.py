@@ -47,8 +47,8 @@ or (v4)
 COMM time, lat, lon, alt...
 12:34:56.789, 2, 3, 4
 
-*By convention*, last comment before data contains the header column name (FDRData.name)
-
+*By convention*, *penutiem* comment before data contains the header column name (FDRData.name)
+(Last comment before contains start of log information.)
 
 CHANGELOG
 
