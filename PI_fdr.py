@@ -866,7 +866,8 @@ class AirbusFlightPhase:
     def save(self, file):
         # On file close, Writes encountered navaids to FDR as comments
         for ph in self._sequence:
-            print(f"COMM, Airbus flight phase {ph.phase.name} {ph.when.isoformat()}", file=file)
+            s = "* " if ph == self._initial_phase else ""
+            print(f"COMM, Airbus flight phase {ph.phase.name} {s}{ph.when.isoformat()}", file=file)
 
 
 #

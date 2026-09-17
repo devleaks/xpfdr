@@ -189,7 +189,8 @@ class FDRReader:
                             fdrdata = FDRData(**keyval)
                             fdrdata.data_index = data_index
                             self.fdr_data[fdrdata.name] = fdrdata
-                            print(fdrdata)
+                            print(fdrdata.data_index, fdrdata)
+                            data_index += 1;
                         except:
                             print("failed to create FDRData, skipped", text)
                             print_exc()
@@ -223,13 +224,11 @@ class FDRReader:
             # else, probably data...
             # if first data encounted, hope last comment was column headings
             if not header_out and len(self.meta["COMM"]) > 0:
-                if self.has_fdrdata:
-                    self.header = ["UTC Time"] + list(self.fdr_data.keys())
-                else:
-                    self.header = [l.strip() for l in self.meta["COMM"][-1][1].split(",")]
-                    t = self.header[0]
-                    if not "time" in self.header[0].lower():
-                        self.header = ["UTC Time"] + self.header
+                header_line = self.meta["COMM"][-2][1]
+                self.header = [l.strip() for l in header_line.split(",")]
+                t = self.header[0]
+                if not "time" in self.header[0].lower():
+                    self.header = ["UTC Time"] + self.header
                 print(f"Header {', '.join(self.header)}")
                 header_out = True
 
@@ -269,7 +268,7 @@ class FDRReader:
                 props[dref] = best_type(v)
         return props  # {self.header[i]: float(data[i].strip()) for i in range(1, len(data))}
 
-    def to_geojson(self, outfile: str, altitude: bool = False, properties: FDR_STDOUT | set | None = None):
+    def to_geojson(self, outfile: str, altitude: bool = False, properties: FDR_STDOUT | list | None = None):
         # Assumes all data are float except first one that is a timestamp
         # TS is datetime.now(datetime.UTC).strftime("%H:%M:%S.%f, ")
         features = []
@@ -278,8 +277,8 @@ class FDRReader:
         if type(properties) is FDR_STDOUT:
             properties = properties.value
         if properties is None:
-            properties = set(self.fdr_data.keys())  # all of them
-        properties = {p for p in properties if p in self.fdr_data}  # keeep those that exists
+            properties = self.header
+        print(properties)
         for row in self.data:
             # coordinates
             p = [float(row[1]), float(row[2])]
@@ -303,31 +302,25 @@ class FDRReader:
             # properties
             props = {"id": feature_index, self.header[0]: ts.isoformat(), "_raw_ts": ts.timestamp()}
 
-            if len(self.fdr_data) > 0:
-                for prop in properties:
-                    data = self.fdr_data.get(prop)
-                    if data is None:
-                        continue
-                    data_index = data.data_index
-                    props = props | {prop: best_type(row[data_index])}
-            else:  # no FDRData, uses column names
-                props = props | {n: best_type(v) for n, v in zip(self.header, row)}
-                t = row[0].strip().split(":")
-                f = 0
-                try:
-                    f = float(t[2])
-                    f = int(f)
-                except:
-                    pass
-                ts = self.basedate.replace(hour=int(t[0]), minute=int(t[1]), second=f)
-                try:
-                    f = float(t[2])
-                    f -= int(f)
-                    if f > 0:
-                        ts.replace(microsecond=int(100000 * f))
-                except:
-                    pass
-                props["UTC Time"] = ts.isoformat()
+            if len(self.header) != len(row):
+                print("length mismatch", len(self.header), len(row))
+            props = props | {n: best_type(v) for n, v in zip(self.header[1:], row[1:])}
+            t = row[0].strip().split(":")
+            f = 0
+            try:
+                f = float(t[2])
+                f = int(f)
+            except:
+                pass
+            ts = self.basedate.replace(hour=int(t[0]), minute=int(t[1]), second=f)
+            try:
+                f = float(t[2])
+                f -= int(f)
+                if f > 0:
+                    ts.replace(microsecond=int(100000 * f))
+            except:
+                pass
+            props["UTC Time"] = ts.isoformat()
             # feature
             features.append({"type": "Feature", "id": feature_index, "geometry": {"type": "Point", "coordinates": p}, "properties": props})
             feature_index += 1
@@ -405,32 +398,23 @@ class FDRReader:
         with open(outfile, "w") as geoj:
             json.dump({"type": "FeatureCollection", "features": features}, geoj, indent=4)
 
-    def to_csv(self, outfile: str, properties: set | None = None):
+    def to_csv(self, outfile: str, properties: list | None = None):
         if type(properties) is FDR_STDOUT:
             properties = properties.value
         if properties is None:
-            if len(self.fdr_data) > 0:
-                properties = set(self.fdr_data.keys())  # all of them
-                properties = {p for p in properties if p in self.fdr_data}  # keeep those that exists
-            else:
-                properties = set(self.header)
+            properties = self.header
         else:
-            properties.add("latitude")
-            properties.add("longitude")
+            properties.append("latitude")
+            properties.append("longitude")
 
         with open(outfile, "w") as fp:
             # header
-            if len(self.fdr_data) > 0:
-                print(",".join(["_raw_ts", "utc_time"] + [d for d in self.fdr_data if d in properties]), file=fp)
-            else:
-                print(",".join(["_raw_ts", "utc_time"] + self.header[1:]), file=fp)
+            print(",".join(["_raw_ts", "utc_time"] + self.header[1:]), file=fp)
             # data
             for row in self.data:
                 ts = get_time(row[0].strip())
                 ts = ts.replace(tzinfo=timezone.utc, day=self.basedate.day, month=self.basedate.month, year=self.basedate.year)
                 frow = row[1:]
-                if len(self.fdr_data) > 0:
-                    frow = [row[f.data_index] for f in self.fdr_data.values() if f.name in properties]
                 print(",".join([str(ts.timestamp()), row[0]] + frow), file=fp)
 
 
@@ -453,7 +437,7 @@ if __name__ == "__main__":
         if a.parse():
             # print("Fields:", a.header)
             # pprint(a.meta, width=120)
-            props = FDR_STDOUT.NONE  # FDR_STDOUT.STD  # {"altitude"}
+            props = FDR_STDOUT.ALL  # FDR_STDOUT.STD  # {"altitude"}
             a.to_geojson(outfile="out.geojson", altitude=True, properties=props)
             a.to_csv(outfile="out.csv", properties=props)
             print(f"{a.length} points written, duration={a.duration}")

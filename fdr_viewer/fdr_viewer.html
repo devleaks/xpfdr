@@ -50,6 +50,7 @@ CHANGELOG
 1.0.0 07-SEP-2026 Initial reelase
 1.3.0 17-SEP-2026 Display command execution on map
 1.4.0 17-SEP-2026 Now load CSV file, especially those produced by fdr_writer.
+1.4.1 17-SEP-2026 Code cleanup.
 
 TO DO
  - When zooming, sync all charts
@@ -111,9 +112,6 @@ function NAVAID_ICON(navType) {
     });
 }
 
-
-
-
 // Main chart shows speed and altitude (always)
 // Like at flightradar24 and flightaware.
 const SPEED_DATA = "ground_speed";  // name of GeoJSON feature property for speed
@@ -139,6 +137,15 @@ const CHART_CURSOR_COLOR = "rgba(0, 0, 255, 0.4)";
 
 // list of GeoJSON feature properties to ignore for charting
 const IGNORE = ["id", "UTC Time", "_raw_ts", "latitude", "longitude", SPEED_DATA, ALTITUDE_DATA];
+
+// In CSV file, first line of file is column header, comma separated list of optionally quoted strings
+const CSV_COLUMN_NAMES = {  // Mandatory column names
+    timestamp: "_raw_ts",
+    latitude: "latitude",
+    longitude: "longitude",
+    altitude: null,
+    ground_speed: null,
+}
 
 const MAX_LINES = 3;  // ideal number of charts rows, BUT grows as needed to accomodate all data
 const MAX_COLUMNS = 4;  // reasonable max.
@@ -226,40 +233,51 @@ function nameValue(s) {
 
 function parseCSVfile(text) {
     let geojson = {}
-    let lines = text.split("\n");
+    const lines = text.split("\n");
     let columns = lines[0].toLowerCase().split(","); // assumes first line is column header
-    let lat_idx = columns.indexOf("latitude");
-    let lon_idx = columns.indexOf("longitude");
-    if (lat_idx == -1 || lon_idx == -1) {
-        console.log("No latitude and longitude in file");
-        return {}
+    const lat_idx = columns.indexOf(CSV_COLUMN_NAMES.latitude);
+    const lon_idx = columns.indexOf(CSV_COLUMN_NAMES.longitude);
+    const ts_idx = columns.indexOf(CSV_COLUMN_NAMES.timestamp);
+    if (ts_idx == -1 || lat_idx == -1 || lon_idx == -1) {
+        console.log("No time, latitude and longitude in file");
+        return {};
     }
-    console.log(lat_idx, lon_idx);
-    let alt_idx = columns.indexOf("altitude");
+    console.log("indices", ts_idx, lat_idx, lon_idx);
+    const alt_idx = CSV_COLUMN_NAMES.altitude ? columns.indexOf(CSV_COLUMN_NAMES.altitude) : -1;
+    const gs_idx = CSV_COLUMN_NAMES.ground_speed ? columns.indexOf(CSV_COLUMN_NAMES.ground_speed) : -1;
     let i = 1;
     let count = 0;
     let fc = []
     columns = lines[0].toLowerCase().split(","); // assumes first line is column header
     while(i < lines.length) {
-        if (lines[i].trim() == "") {
+        let line = lines[i].trim();
+        if (line == "") {
             i++;
             continue;
         }
-        let line = lines[i].trim().split(",");
-        let coords = [parseFloat(line[lon_idx]), parseFloat(line[lat_idx])]
-        if (alt_idx > -1) {
-            coords.push(parseFloat(line[alt_idx]))
+        const values = line.split(",");
+        if (values.length != columns.length) {
+            console.log("columns/values: non matching length", i, columns.length, values.length);
+            continue;
         }
-        console.log(line[0])
-        d = new Date(parseFloat(line[0]));
-        console.log(d)
+        let coords = [parseFloat(values[lon_idx]), parseFloat(values[lat_idx])]
+        if (alt_idx > -1) {
+            coords.push(parseFloat(values[alt_idx]))
+        }
+        let ts = parseFloat(values[ts_idx])
+        let d = new Date(ts);
         let props = {
             "UTC Time": d.toISOString(),
-            "_raw_ts": d.getTime(),
-            "elevation": line[2],
+            "_raw_ts": d.getTime(), // == ts
         }
-        for(j=1; j < line.length; j++) {
-            props[j < columns.length ? columns[j] : "prop" + j] = isNaN(line[j]) ? line[j] : parseFloat(line[j]);
+        if (alt_idx != -1) {
+            props[ALTITUDE_DATA] = values[alt_idx];
+        }
+        if (gs_idx != -1) {
+            props[SPEED_DATA] = values[gs_idx];
+        }
+        for(j=1; j < values.length; j++) {
+            props[j < columns.length ? columns[j] : "prop" + j] = isNaN(values[j]) ? values[j] : parseFloat(values[j]);
         }
         let p = {
             type: "Feature",
@@ -269,7 +287,6 @@ function parseCSVfile(text) {
             },
             "properties": props
         }
-        console.log(p)
         fc.push(p);
         i++;
     }
