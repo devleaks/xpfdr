@@ -60,7 +60,8 @@ CHANGELOG
 1.4.0 14-SEP-2026 Added navaid log
 1.5.0 15-SEP-2026 Register command executions
 1.5.1 15-SEP-2026 Display command execution on map
-1.5.2 15-SEP-2026 Maintenance release, code cleanup
+1.5.2 15-SEP-2026 Added ground speed and altitude AGL to defaults
+1.5.3 15-SEP-2026 Maintenance release, code cleanup
 
 """
 
@@ -108,7 +109,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 # Script meta
 SHOW_TRACE = False
 NAME = "FDR"
-VERSION = "1.5.2"
+VERSION = "1.5.3"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -1286,7 +1287,7 @@ class PythonInterface:
         return inMessage in [xp.MSG_AIRPORT_LOADED, xp.MSG_SCENERY_LOADED]  # xp.MSG_DATAREFS_ADDED
 
     def XPluginReceiveMessage(self, inFromWho, inMessage, inParam):
-        # self.debug(f"XPluginReceiveMessage: received {inMessage}", force=True)
+        self.debug(f"XPluginReceiveMessage: received {inMessage} {[xp.MSG_AIRPORT_LOADED, xp.MSG_SCENERY_LOADED]}", force=True)
         if self.requiresReload(inMessage):
             if self.load_acf_preferences():
                 self.debug("XPluginReceiveMessage: preference reloaded", force=True)

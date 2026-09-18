@@ -266,6 +266,8 @@ FDR Viewer display a Flightradar/Flight Aware type of graph with
 If additional values are requested through a preference file,
 all additional values are presented in similar graphs.
 
+![fdr viewer](https://raw.githubusercontent.com/devleaks/xpfdr/refs/heads/main/fdr_viewer/media/fdr_viewer.png)
+
 Map is presented by [Leaflet](https://leafletjs.com). Charts are presented by [ChartJS](https://www.chartjs.org).
 All code by Pierre, a HI. Hence bugs.
 

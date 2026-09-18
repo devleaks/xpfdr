@@ -8,6 +8,7 @@
     <script src="chartjs/chartjs-plugin-zoom.js"></script>
     <style>
         body {
+            background-color: #222;
             background-repeat:no-repeat;
             background-position: center center;
             background-image: url(media/welcome-on.png);
@@ -42,7 +43,7 @@
         <!-- <canvas id="chart#" class="chart"></canvas> -->
     </div>        
 <script language="javascript">
-const VERSION = "1.4.0"
+const VERSION = "1.5.0"
 /*
 CHANGELOG
 
@@ -50,6 +51,7 @@ CHANGELOG
 1.3.0 17-SEP-2026 Display command execution on map
 1.4.0 17-SEP-2026 Now load CSV file, especially those produced by fdr_writer.
 1.4.1 17-SEP-2026 Code cleanup.
+1.5.0 18-SEP-2026 Refinements, dark mode, better tooltip, etc.
 
 TO DO
  - When zooming, sync all charts
@@ -125,8 +127,8 @@ const SPEED_LABEL = "Ground speed (m/s)"
 
 const ALTITUDE_DATA = "agl";  // name of GeoJSON feature property for altitude
 const ALTITUDE_CONVERT = {
-    "m": 0.3048,
-    "ft": 1,
+    "m": 1,
+    "ft": 1/0.3048,
     "fl": 0.001
 };
 const ALTITUDE_UNIT = "ft";
@@ -144,8 +146,8 @@ const CSV_COLUMN_NAMES = {  // Mandatory column names
     timestamp: "_raw_ts",
     latitude: "latitude",
     longitude: "longitude",
-    altitude: ALTITUDE_DATA,
-    ground_speed: SPEED_DATA,
+    altitude: ALTITUDE_DATA, // can be null
+    ground_speed: SPEED_DATA,  // can be null
 }
 
 const MAX_LINES = 3;  // ideal number of charts rows, BUT grows as needed to accomodate all data
@@ -563,7 +565,7 @@ function buildMap(text, filetype) {
         m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
             icon: NAVAID_ICON(f.properties["navType"])
         });
-        m.bindTooltip(f.properties["navAidId"]);
+        m.bindTooltip(f.properties["navAidId"] + " (" + f.properties["navType"] + ")");
         m.bindPopup(navaid_props(f.properties));
         return m;
     });
@@ -590,7 +592,7 @@ function buildMap(text, filetype) {
         attribution: "&copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>"
     }).addTo(map);
     // display whole flight as linestring
-    L.polygon(latlngs, {
+    L.polyline(latlngs, {
         color: "darkblue",
         fill: false
     }).addTo(map);
@@ -612,6 +614,10 @@ function buildMap(text, filetype) {
     chartCandidates =  Object.keys(f.properties)
         .filter((p) => typeof(f.properties[p]) == "number" && IGNORE.indexOf(p.trim()) == -1);
     // console.log(chartCandidates, chartCandidates.length);
+
+    Chart.defaults.backgroundColor = '#222';
+    Chart.defaults.borderColor = '#aaa';
+    Chart.defaults.color = '#ddd';        
 
     buildSpeedAltChart();
     if (chartCandidates.length > 0) {
@@ -801,9 +807,9 @@ function buildSpeedAltChart() {
                                 label += ": ";
                             }
                             if (context.parsed.y !== null) {
-                                if (context.dataset.label == SPEED_DATA.replaceAll("_", " ")) {
+                                if (context.dataset.label == SPEED_LABEL) {
                                     label += Math.round(context.parsed.y, 0) + SPEED_UNIT;
-                                } else if (context.dataset.label == ALTITUDE_DATA.replaceAll("_", " ")) {
+                                } else if (context.dataset.label == ALTITUDE_LABEL) {
                                     label += Math.round(context.parsed.y, 0) + ALTITUDE_UNIT;
                                 }
                             }
