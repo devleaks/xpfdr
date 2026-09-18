@@ -60,21 +60,20 @@ CHANGELOG
 1.4.0 14-SEP-2026 Added navaid log
 1.5.0 15-SEP-2026 Register command executions
 1.5.1 15-SEP-2026 Display command execution on map
+1.5.2 15-SEP-2026 Maintenance release, code cleanup
 
 """
 
 import os
-import inspect
 import re
 import math
-from types import new_class
-import tomllib
+# import tomllib
+from enum import IntEnum
+from dataclasses import dataclass
 from functools import reduce
 from datetime import datetime, timedelta, timezone
 from traceback import print_exc
 from typing import Callable, Any, List
-from dataclasses import dataclass
-from enum import IntEnum
 
 try:
     import xp
@@ -106,37 +105,40 @@ except ModuleNotFoundError:
 PLUGIN_ROOT_PATH = os.path.dirname(os.path.abspath(__file__))  # .../PythonPlugins
 SCRIPT_NAME = os.path.basename(__file__)
 
-SHOW_TRACE = True
+# Script meta
+SHOW_TRACE = False
 NAME = "FDR"
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 DESCRIPTION = "Flight Data Recordder"
 
+# Script UI
 FDR_MENU = "Start or stop FDR"
 FDR_RESET_COMMAND = "xppython3/fdr/start_stop_toggle"
 FDR_RESET_COMMAND_DESC = "Start or stop a new FDR session"
 FDR_PLUGIN_SIGNATURE = "com.xppython3.fdr"
 
+# Default values
 FDR_PREFERENCE_FILE = "fdr.prf"  # .prf?
 FDR_VERSION = 4  # 3 or 4
 FDR_ARCH = "APPLE"  # "APPLE" or "IBM"
 
+DREF_SUB = "${x}"
 WRITE_FREQUENCY = 10.0  # seconds
-REPORT_FREQUENCY = 100  # number of writes
+REPORT_FREQUENCY = 100  # number of writes before logging
+LINREG_LEN = 10  # number of points in linear regression
 AUTOSTART = True
 AUTOSTART_FREQUENCY = 10.0  # secs
 AUTOSTART_THRESHOLD = 2.0  # m/s
 AUTOSTOP_THRESHOLD = 600.0  # seconds
 
-USE_CALLBACK = False  # use at your own risk
-DREF_SUB = "${x}"
-REG_LEN = 10
-
-# General thresholds
-MIN_SPEED = 1.0  # m/s, below that threshold: stopped
+# Thresholds
+MIN_SPEED = 1.0  # m/s, below that speed is stopped
 MIN_LIFTOFF_ABGL = 10.0  # m  > means in air, ABGL is CG of aircraft, != 0 when on ground.
 MAX_LANDING_ABGL = 30.0  # m  < means on the ground (almost)
 
 
+# Helpers and data class container
+#
 class RPC:
     # Simple implementation of a reverse polish calculator in Python.
     # Stolen here: https://github.com/scriptprinter/reverse-polish-calculator
@@ -225,20 +227,13 @@ class FLIGHT(IntEnum):
     IN_AIR = 4
 
 
-# Helper data class container
-#
-HIDDEN_CB_SRC = "_callback_src"
-HIDDEN_DREF_SRC = "_dataref_src"
-CB_LEN = 64
-
-
 @dataclass
 class FDRData:
     name: str  # tail number
     dataref: str  # sim/aircraft/view/acf_tailnum
     pyslice: slice | None = None
     _indices: list | None = None
-    callback: Callable | str | None = None
+    callback: str | None = None
     unit: str | None = None
     force_datatype: str | None = None
     factor: float = 1.0
@@ -251,7 +246,7 @@ class FDRData:
 
     def init(self) -> bool:
         # One day, we may accept values like "sim/dataref_array[1,5,7,9]"
-        setattr(self, HIDDEN_DREF_SRC, self.dataref)  # keep a copy of original request
+        setattr(self, "_dataref_src", self.dataref)  # keep a copy of original request
         whole_dref = self.dataref
         try:
             has_slice = re.match(r"(?P<path>[^\[]+)\[(?P<s>[-\d]*)(:(?P<e>[-\d]*)?(:(?P<i>[-\d]*))?)+\]", self.dataref)  # python slice syntax
@@ -298,7 +293,7 @@ class FDRData:
         if "[" in info:
             info = info[: info.index("[")]
         if self.is_array:
-            l = self.length
+            l = self.dataref_array_length
             if l is not None:
                 info += f"[{l}]"
         if len(self.dref.types) > 1:
@@ -312,38 +307,18 @@ class FDRData:
         if self.dref is None:
             print(f"{NAME} {VERSION}::FDRData.info: {self.dataref} no dref")
             return 0
-        if self._indices is not None:
-            print(f"{NAME} {VERSION}::FDRData.fetched: {self.dataref}[{self.indices}]")
-        elif self.pyslice is not None:
+        if self.value_length > 1:
             print(f"{NAME} {VERSION}::FDRData.fetched: {self.dataref}[{self.indices}]")
         else:
             print(f"{NAME} {VERSION}::FDRData.fetched: {self.dataref}")
 
     def fun(self) -> str | None:
-        # See http://xion.io/post/code/python-get-lambda-code.html
+        cheat = self._indices
+        if self.value_length > 1:
+            self._indices = self.indices
         s = repr(self)
-        if self.callback is None:
-            return s
-        if not USE_CALLBACK:
-            return s
-        else:
-            if hasattr(self, HIDDEN_CB_SRC):  # callback installed through eval()
-                sc = f"callback={getattr(self, HIDDEN_CB_SRC)}"
-                s1 = re.sub(r"callback=\<function \<lambda\> at 0[xX][0-9a-fA-F]+\>", sc, s)
-                # print(f"FDRData::fun: re.sub: {s} => {s1}")
-                return s1
-            try:
-                line = inspect.getsourcelines(self.callback)[0][0].strip()
-                cmt = line.rindex("#")  # remove comments at end of line
-                if cmt > 0:
-                    line = line[:cmt]  # remove comma after closing parent if any
-                cmt = line.rindex(")")
-                if cmt > 0:
-                    line = line[: cmt + 1]  # keep the )
-                return line
-            except Exception as e:
-                print(f"{NAME} {VERSION}::FDRData.fun: {self.name} {self.dataref} exception: {e}")
-        return None
+        self._indices = cheat
+        return s
 
     @property
     def is_array(self) -> bool:
@@ -353,11 +328,11 @@ class FDRData:
         return "float_array" in self.dref.types or "int_array" in self.dref.types or "data" in self.dref.types
 
     @property
-    def length(self) -> int:
+    def dataref_array_length(self) -> int:
         # return *dataref length* if it is an array (int or float)
-        LENGTH = "_length"
+        LENGTH = "_dataref_array_length"
         if self.dref is None:
-            print(f"{NAME} {VERSION}::FDRData.length: {self.dataref} no dref")
+            print(f"{NAME} {VERSION}::FDRData.dataref_array_length: {self.dataref} no dref")
             return 0
         if hasattr(self, LENGTH):  # cached
             return getattr(self, LENGTH)
@@ -367,8 +342,9 @@ class FDRData:
         if v is None:
             return 0
         if isinstance(v, (list, tuple, dict, bytes)):
-            setattr(self, LENGTH, len(v))
-            return self._length
+            l = len(v)
+            setattr(self, LENGTH, l)
+            return l
         setattr(self, LENGTH, 1)
         return 1
 
@@ -383,7 +359,7 @@ class FDRData:
     def value_length(self) -> int:
         # return this FDRData value length, 1 for scalar, 0 if None
         if self.dref is None:
-            print(f"{NAME} {VERSION}::FDRData.length: {self.dataref} no dref")
+            print(f"{NAME} {VERSION}::FDRData.value_length: {self.dataref} no dref")
             return 0
         v = self.value
         if v is None:
@@ -393,21 +369,21 @@ class FDRData:
         return 1
 
     @property
-    def indices(self) -> set:
+    def indices(self) -> list:
         if self.dref is None:
             print(f"{NAME} {VERSION}::FDRData.indices: {self.dataref} no dref")
-            return set()
+            return []
         # selected indices
         if self._indices is not None:
-            return set(self._indices)
-        l = self.length
+            return self._indices
+        l = self.dataref_array_length
         # if only one index requested
         if l < 2:
             return {0}
         # slice()
         if self.pyslice is None:
-            return set(range(l))  # all indices
-        return set(range(l)[self.pyslice])
+            return list(range(l))  # all indices
+        return list(range(l))[self.pyslice]
 
     def applyCallback(self, value: float | int) -> float | int:
         v = value
@@ -504,9 +480,7 @@ HEADER = [
     FDRData(name="REPL", dataref="sim/operation/prefs/replay_mode"),  # no FDR onreplays (sim/time/is_in_replay)
     FDRData(name="ZDAY", dataref="sim/time/zulu_date_days"),  # used to get simulator time
     FDRData(name="ZSEC", dataref="sim/time/zulu_time_sec"),  # used to get simulator date (assume current year)
-    FDRData(name="MOVE", dataref="sim/flightmodel2/position/groundspeed"),
-    FDRData(name="ABGL", dataref="sim/flightmodel2/position/y_agl"),
-    FDRData(name="CHOK", dataref="sim/flightmodel2/gear/is_chocked"),
+    FDRData(name="CHOK", dataref="sim/flightmodel2/gear/is_chocked"),  # used for formal OOOI
 ]
 # Through preferences, user can define a set of fdr_info datarefs to complement header information
 
@@ -519,15 +493,18 @@ FDR_DATA = [
     FDRData(name="heading", dataref="sim/cockpit2/gauges/indicators/heading_electric_deg_mag_pilot"),
     FDRData(name="pitch", dataref="sim/cockpit2/gauges/indicators/pitch_electric_deg_pilot"),
     FDRData(name="roll", dataref="sim/cockpit2/gauges/indicators/roll_electric_deg_pilot"),
+    FDRData(name="gs", dataref="sim/flightmodel2/position/groundspeed", unit="m/s"),
+    FDRData(name="agl", dataref="sim/flightmodel2/position/y_agl"),
 ]
 # Through preferences, user can define a set of fdr_optional datarefs.
 
+# One day, they be part of preferences
 NAVAID_FREQUENCIES = [
-    "sim/cockpit/radios/adf1_freq_hz",
-    "sim/cockpit/radios/adf2_freq_hz",
-    "sim/cockpit/radios/dme_freq_hz",
-    "sim/cockpit/radios/nav1_freq_hz",
-    "sim/cockpit/radios/nav2_freq_hz",
+    FDRData.new(dataref="sim/cockpit/radios/adf1_freq_hz"),
+    FDRData.new(dataref="sim/cockpit/radios/adf2_freq_hz"),
+    FDRData.new(dataref="sim/cockpit/radios/dme_freq_hz"),
+    FDRData.new(dataref="sim/cockpit/radios/nav1_freq_hz"),
+    FDRData.new(dataref="sim/cockpit/radios/nav2_freq_hz"),
 ]
 
 
@@ -535,6 +512,18 @@ NAVAID_FREQUENCIES = [
 #
 # A I R B U S   F L I G H T   P H A S E
 #
+# Airbus Flight Phase specific thresholds
+# S.I., for A321, may need adjustment on acf model, engines, etc. We'll see later
+S80KT = 80 * 0.5144444  # m/s
+FAST = 500  # 1 Mach = 340.29m/s, sea level
+A1500FT = 1500 * 0.3048  # m
+A800FT = 800 * 0.3048  # m
+MIN_ABGL = 10.0  # m, must take into account aircraft CG elev ABGL, make higher for A380
+ENG_PWR = 1500  # Thrust in N to assume engine to power
+ENG_OFF = 10  # Thrust in N, minimal to assume engine started
+FIVEMIN = 300.0  # secs
+
+
 class AIRBUS_PHASE(IntEnum):
     OFF = 0  # cold and dark
     ELECPOWER = 1  # coffie machine available
@@ -554,18 +543,6 @@ class AIRBUS_PHASE(IntEnum):
 class FlightPhase:
     phase: AIRBUS_PHASE
     when: datetime
-
-
-# Airbus Flight Phase specific thresholds
-# S.I., for A321, may need adjustment on acf model, engines, etc. We'll see later
-S80KT = 80 * 0.5144444  # m/s
-FAST = 500  # 1 Mach = 340.29m/s, sea level
-A1500FT = 1500 * 0.3048  # m
-A800FT = 800 * 0.3048  # m
-MIN_ABGL = 10.0  # m, must take into account aircraft CG elev ABGL, make higher for A380
-ENG_PWR = 1500  # Thrust in N to assume engine to power
-ENG_OFF = 10  # Thrust in N, minimal to assume engine started
-FIVEMIN = 300.0  # secs
 
 
 class AirbusFlightPhase:
@@ -699,12 +676,12 @@ class AirbusFlightPhase:
             if self.current.phase == AIRBUS_PHASE.FIRSTENGSTARTED and self.test_engpwr():
                 next_phase()
                 return self.flight_phase(dt=dt)
-            if self.current.phase == AIRBUS_PHASE.FIRSTENGTOPOWER and self.get_value("ground_speed", 0) > S80KT:
+            if self.current.phase == AIRBUS_PHASE.FIRSTENGTOPOWER and self.get_value("gs", 0) > S80KT:
                 next_phase()
                 return self.flight_phase(dt=dt)
             if self.current.phase == AIRBUS_PHASE.FIRSTENGTOPOWER:
                 ## GREY MATTER: Less than 80KT. Stopped?
-                if self.get_value("ground_speed", FAST) < MIN_SPEED:  # Engine on and stopped
+                if self.get_value("gs", FAST) < MIN_SPEED:  # Engine on and stopped
                     # are we stopped before the flight or after the flight?
                     if self.had_air_time():
                         return set_phase(phase=AIRBUS_PHASE.DECEL80KT, message="stopped and had air time")  # wait for engine to stop
@@ -720,14 +697,14 @@ class AirbusFlightPhase:
                 self.debug("flight_phase/init:: speed regression unreliable")
                 return self.current
 
-            if self.current.phase == AIRBUS_PHASE.ACCEL80KT and self.get_value("ABGL", 0) > MIN_ABGL:
+            if self.current.phase == AIRBUS_PHASE.ACCEL80KT and self.get_value("agl", 0) > MIN_ABGL:
                 next_phase()
                 return self.flight_phase(dt=dt)
 
             if self.current.phase == AIRBUS_PHASE.ACCEL80KT and self.had_air_time():  # just landed
                 return set_phase(phase=AIRBUS_PHASE.LANDING, message=f"had air time, below {MIN_ABGL}m, above 80kt")
 
-            if self.current.phase == AIRBUS_PHASE.LIFTOFF and self.get_value("ABGL", 0) > A1500FT:
+            if self.current.phase == AIRBUS_PHASE.LIFTOFF and self.get_value("agl", 0) > A1500FT:
                 next_phase()
                 return set_inited("flying above 1500FT")  # we're above 1500ft, we cannot say much now
 
@@ -737,12 +714,12 @@ class AirbusFlightPhase:
                     if self.alt_reg()[0] > 0:  # climbing, we will eventually reach >1500ft
                         return set_inited("lifted off, climbing")
                     # Descending
-                    if self.get_value("ABGL", 0) > A800FT:  # we're between 1500 and 800ft, descending, we will eventually reach <800ft
+                    if self.get_value("agl", 0) > A800FT:  # we're between 1500 and 800ft, descending, we will eventually reach <800ft
                         return set_phase(phase=AIRBUS_PHASE.ABOVE1500FT, message="descending, between 800 and 1500ft")
                     # Just touching down
-                    if self.get_value("ABGL", A1500FT) < MIN_ABGL:  # descending, we're below MAX_LANDING_ABGL, we'll touch down
+                    if self.get_value("agl", A1500FT) < MIN_ABGL:  # descending, we're below MAX_LANDING_ABGL, we'll touch down
                         return set_phase(phase=AIRBUS_PHASE.LANDING, message=f"descending, below {MIN_ABGL}")
-                    if self.get_value("ABGL", A1500FT) < A800FT:  # we're between 800ft and MAX_LANDING_ABGL, descending, we already passed 800ft going down
+                    if self.get_value("agl", A1500FT) < A800FT:  # we're between 800ft and MAX_LANDING_ABGL, descending, we already passed 800ft going down
                         return set_phase(phase=AIRBUS_PHASE.BELOW800FT, message=f"descending, between 800 and {MIN_ABGL}")
                 self.debug("flight_phase/init:: altitude regression unreliable")
                 return self.current
@@ -750,13 +727,13 @@ class AirbusFlightPhase:
             if not self.test_engpwr() and self.had_air_time():
                 return set_phase(phase=AIRBUS_PHASE.SECONDENGSHUTDOWN, message="no power, had air time, cooling down 5 min")  # wait for five minutes
 
-            if self.current.phase == AIRBUS_PHASE.ABOVE1500FT and self.get_value("ABGL", A1500FT) < A800FT:
+            if self.current.phase == AIRBUS_PHASE.ABOVE1500FT and self.get_value("agl", A1500FT) < A800FT:
                 next_phase()
                 return self.flight_phase(dt=dt)
-            if self.current.phase == AIRBUS_PHASE.BELOW800FT and self.get_value("ABGL", A1500FT) < MIN_ABGL:
+            if self.current.phase == AIRBUS_PHASE.BELOW800FT and self.get_value("agl", A1500FT) < MIN_ABGL:
                 next_phase()
                 return self.flight_phase(dt=dt)
-            if self.current.phase == AIRBUS_PHASE.TOUCHDOWN and self.get_value("ground_speed", FAST) < S80KT:
+            if self.current.phase == AIRBUS_PHASE.TOUCHDOWN and self.get_value("gs", FAST) < S80KT:
                 next_phase()
                 return self.flight_phase(dt=dt)
             if self.current.phase == AIRBUS_PHASE.DECEL80KT and self.test_shutdown():
@@ -821,27 +798,27 @@ class AirbusFlightPhase:
 
     def test_accel80kt(self) -> bool:
         self.debug(f"test_accel80kt: {self.spd_reg()} {self.get_value('ground_speed', 0.0)} > {S80KT}")
-        return self.spd_reg()[0] > 0 and self.get_value("ground_speed", 0) > S80KT
+        return self.spd_reg()[0] > 0 and self.get_value("gs", 0) > S80KT
 
     def test_liftoff(self) -> bool:
         self.debug(f"test_liftoff: {self.alt_reg()} {self.get_value('ABGL', 0.0)} > { 2* MIN_ABGL}")
-        return self.alt_reg()[0] > 0 and self.get_value("ABGL", 0) > MIN_ABGL * 2
+        return self.alt_reg()[0] > 0 and self.get_value("agl", 0) > MIN_ABGL * 2
 
     def test_alt1500ft(self) -> bool:
         self.debug(f"test_alt1500ft: {self.alt_reg()} {self.get_value('ABGL', 0.0)} > {A1500FT}")
-        return self.alt_reg()[0] > 0 and self.get_value("ABGL", 0) > A1500FT
+        return self.alt_reg()[0] > 0 and self.get_value("agl", 0) > A1500FT
 
     def test_alt800ft(self) -> bool:
         self.debug(f"test_alt800ft: {self.alt_reg()} {self.get_value('ABGL', A1500FT)} < {A800FT}")
-        return self.alt_reg()[0] < 0 and self.get_value("ABGL", 0) < A800FT
+        return self.alt_reg()[0] < 0 and self.get_value("agl", 0) < A800FT
 
     def test_touchdown(self) -> bool:
         self.debug(f"test_touchdown: {self.get_value('ABGL', A1500FT)} < {MIN_ABGL}")
-        return self.get_value("ABGL", A1500FT) < MIN_ABGL
+        return self.get_value("agl", A1500FT) < MIN_ABGL
 
     def test_decel80kt(self) -> bool:
         self.debug(f"test_decel80kt: {self.spd_reg()} {self.get_value('ground_speed', 100.0)} < {S80KT}")
-        return self.spd_reg()[0] < 0 and self.get_value("ground_speed", FAST) < S80KT
+        return self.spd_reg()[0] < 0 and self.get_value("gs", FAST) < S80KT
 
     def test_shutdown(self) -> bool:
         engs = self.get_value("eng_pwr", [])
@@ -868,7 +845,6 @@ class AirbusFlightPhase:
         for ph in self._sequence:
             s = "* " if ph == self._initial_phase else ""
             print(f"COMM, Airbus flight phase {ph.phase.name} {s}{ph.when.isoformat()}", file=file)
-
 
 #
 #
@@ -900,12 +876,12 @@ class PythonInterface:
         self.prefs = {}
 
         self.header = {d.name: d for d in HEADER}  # collected once
-        self.fdr_data = FDR_DATA
+        self.fdr_data = {d.name: d for d in FDR_DATA}  # mandatory reported values
 
         self.custom_chocks = None
 
         # navaids
-        self.navaid_freqs = []
+        self.navaid_freqs:List[FDRData] = NAVAID_FREQUENCIES
         self.navaids: Dict[str, NavAid] = {}
         self.navaid_counter = 0
 
@@ -934,27 +910,24 @@ class PythonInterface:
         self.err_lst = None
 
         # Can be changed in preferences
-        self.fdr_info = []
-        self.fdr_optional = []
+        self.fdr_info = {}
+        self.fdr_optional = {}
+        self.navaid_freqs_optional:List[FDRData] = []
         self.last_acf = ""
-        self.frequency = max(self.prefs.get("frequency", WRITE_FREQUENCY), WRITE_FREQUENCY)
-        self.report_frequency = max(self.prefs.get("report_frequency", REPORT_FREQUENCY), REPORT_FREQUENCY)
-        self.version = self.prefs.get("fdr_version", FDR_VERSION)
-        self.arch = self.prefs.get("fdr_arch", FDR_ARCH)
+        self.frequency = WRITE_FREQUENCY
+        self.report_frequency = REPORT_FREQUENCY
+        self.arch = FDR_ARCH
+        self.version = FDR_VERSION
 
     @property
-    def fdr_all_data(self) -> list:
+    def fdr_all_data_values(self) -> List[FDRData]:
         # all datarefs to collect at each iteration
-        return self.fdr_data + self.fdr_optional
+        return list(self.fdr_data.values()) + list(self.fdr_optional.values())
 
     @property
-    def fdr_data_by_name(self) -> dict:
-        return {d.name: d for d in self.fdr_all_data}
-
-    @property
-    def fdr_info_by_name(self) -> dict:
-        return {d.name: d for d in self.fdr_info}
-
+    def all_navaid_freqs(self) -> List[FDRData]:
+        # all datarefs to collect at each iteration
+        return self.navaid_freqs + self.navaid_freqs_optional
     #
     # ERROR and MISBEHAVIOR
     #
@@ -1015,7 +988,7 @@ class PythonInterface:
             #
             # ################################################
 
-            gndsp = self.header.get("MOVE").value
+            gndsp = self.fdr_data.get("gs").value
             if gndsp is None:  # we don't know...
                 self.debug("flight_status: no movement info")
                 return FLIGHT.UNKNOWN
@@ -1034,7 +1007,7 @@ class PythonInterface:
                 self.debug("flight_status: started moving")
                 self.last_stop = None
             # Are we in the air?
-            elev = self.header.get("ABGL").value
+            elev = self.fdr_data.get("agl").value
             if elev is None or elev < MIN_LIFTOFF_ABGL:
                 return FLIGHT.MOVING_ON_GROUND
             # Yes we are in the air...
@@ -1048,7 +1021,7 @@ class PythonInterface:
             self.add_elev(self.system_now_datetime, elev)
             r, e, cnt, diff = self.vertical_lr()
             t = self.elevs[-1][0] - self.elevs[0][0]
-            # self.debug(f"flight_status: vertical regression: {round(r, 2)} m/s ({round(r*196.85039, 0)} ft/m) (delta t={round(t, 2)} secs, {REG_LEN} pts), err={round(e, 2)}")
+            # self.debug(f"flight_status: vertical regression: {round(r, 2)} m/s ({round(r*196.85039, 0)} ft/m) (delta t={round(t, 2)} secs, {LINREG_LEN} pts), err={round(e, 2)}")
             if elev < MAX_LANDING_ABGL and r < 0.0:
                 self.calibration(takeoff=False)
                 self.debug("flight_status: landing")
@@ -1139,9 +1112,9 @@ class PythonInterface:
     def calibration(self, takeoff: bool = True):
         movement = "TAKEOFF" if takeoff else "LANDING"
         try:
-            lat = self.fdr_data_by_name.get("latitude").value
-            lon = self.fdr_data_by_name.get("longitude").value
-            alt = self.header.get("ABGL").value
+            lat = self.fdr_data.get("latitude").value
+            lon = self.fdr_data.get("longitude").value
+            alt = self.fdr_data.get("agl").value
             self.debug(f"CALI lat={lat}, lon={lon}, alt={alt}", force=True)
             self.debug(f"COMM CALI {movement} PRECISION: recording frequency={self.frequency} secs.", force=True)
             self.debug(f"COMM CALI {movement} not written to FDR file", force=True)
@@ -1152,7 +1125,7 @@ class PythonInterface:
         # Add (timestamp, elevation) to limited list for regression
         if type(alt) in [int, float]:
             self.elevs.append((dt.timestamp(), alt))
-        if len(self.elevs) > REG_LEN:
+        if len(self.elevs) > LINREG_LEN:
             self.elevs = self.elevs[-10:]
 
     def vertical_lr(self) -> tuple:
@@ -1176,7 +1149,7 @@ class PythonInterface:
         # Add (timestamp, elevation) to limited list for regression
         if type(speed) in [int, float]:
             self.speeds.append((dt.timestamp(), speed))
-        if len(self.speeds) > REG_LEN:
+        if len(self.speeds) > LINREG_LEN:
             self.speeds = self.speeds[-10:]
 
     def speed_lr(self) -> tuple:
@@ -1241,7 +1214,10 @@ class PythonInterface:
         for d in self.header.values():
             d.init()
 
-        for d in self.fdr_data:
+        for d in self.fdr_data.values():
+            d.init()
+
+        for d in self.navaid_freqs:
             d.init()
 
         # Install output dir
@@ -1406,21 +1382,14 @@ class PythonInterface:
         if len(opts) > 0:
             if len(self.fdr_optional) > 1:
                 self.debug(f"install_preferences: uninstalling {len(self.fdr_optional)} optional datarefs", force=True)
-            self.fdr_optional = []
+            self.fdr_optional = {}
             for d in opts:
                 callback = d.get("callback")
                 if callback is not None:
                     del d["callback"]
                 f = FDRData(**d)
-                if USE_CALLBACK and callback is not None:
-                    if len(callback) < CB_LEN:
-                        self.debug(f"install_preferences: eval callback {callback}", force=True)
-                        setattr(f, HIDDEN_CB_SRC, callback)
-                        f.callback = eval(callback, {}, {})
-                    else:
-                        self.debug("install_preferences: callback too long, not installed", force=True)
                 f.init()
-                self.fdr_optional.append(f)
+                self.fdr_optional[f.name] = f
             self.debug(f"install_preferences: added {len(self.fdr_optional)} datarefs to monitor", force=True)
 
         # Add information datarefs
@@ -1428,27 +1397,29 @@ class PythonInterface:
         if len(opts) > 0:
             if len(self.fdr_info) > 1:
                 self.debug(f"uninstalling {len(self.fdr_info)} info datarefs", force=True)
-            self.fdr_info = []
+            self.fdr_info = {}
             for d in opts:
-                callback = d.get("callback")
-                if callback is not None:
-                    del d["callback"]
                 f = FDRData(**d)
-                if USE_CALLBACK and callback is not None:
-                    if len(callback) < CB_LEN:
-                        self.debug(f"eval callback {callback}", force=True)
-                        setattr(f, HIDDEN_CB_SRC, callback)
-                        f.callback = eval(callback, {}, {})
-                    else:
-                        self.debug("install_preferences: callback too long", force=True)
                 f.init()
-                self.fdr_info.append(f)
+                self.fdr_info[f.name] = f
             self.debug(f"install_preferences: added {len(self.fdr_info)} info datarefs", force=True)
 
         # commands
         cmds = newprefs.get("commands", {})
         if len(cmds) > 0:
             self.commands = cmds
+
+        # navaid frequencies
+        opts = newprefs.get("navaid_freqs_optional", {})
+        if len(opts) > 0:
+            if len(self.navaid_freqs_optional) > 1:
+                self.debug(f"uninstalling {len(self.navaid_freqs_optional)} navaid frequencies", force=True)
+            self.navaid_freqs_optional = {}
+            for d in opts:
+                f = FDRData.new(dataref=d)
+                f.init()
+                self.navaid_freqs_optional.append(f)
+            self.debug(f"install_preferences: added {len(self.navaid_freqs_optional)} navaid frequencies", force=True)
 
         self.prefs = newprefs
         if desc is not None:
@@ -1460,7 +1431,7 @@ class PythonInterface:
         author = self.header.get("AUTH").value
         self.debug(f"install_preferences: {icao} by {author}", force=True)
         if icao in ["A321", "A21N"] and author in ["Gliding Kiwi", "GlidingKiwi", "ToLiss"]:
-            all_datarefs_by_name = self.header | self.fdr_info_by_name | self.fdr_data_by_name
+            all_datarefs_by_name = self.header | self.fdr_info | self.fdr_data | self.fdr_optional
             self._afp = AirbusFlightPhase(
                 dt=self.simulator_zulu_datetime, datarefs=all_datarefs_by_name, alt_reg=self.vertical_lr, spd_reg=self.speed_lr, airtime=self.had_air_time
             )
@@ -1506,7 +1477,10 @@ class PythonInterface:
                     self.debug("load_acf_preferences: aircraft preference file loaded")
                     return True
                 else:
-                    self.debug(f"load_acf_preferences: no aircraft preference file {acffile}")
+                    if SHOW_TRACE:
+                        self.debug(f"load_acf_preferences: no aircraft preference file {acffile}")
+                    else:
+                        self.debug("no aircraft preference file", force=True)
         except Exception as e:
             self.debug(f"load_acf_preferences: exception: {e}", force=True)
             print_exc()
@@ -1530,7 +1504,10 @@ class PythonInterface:
                 self.prefs = {}
                 return False
 
-        self.debug(f"load_preferences: no preference file {preffile}")
+        if SHOW_TRACE:
+            self.debug(f"load_preferences: no preference file {preffile}")
+        else:
+            self.debug("no preference file", force=True)
         return False
 
     #
@@ -1608,11 +1585,11 @@ class PythonInterface:
             return
         self.estimated_state = self.flight_status
         print(f"\nCOMM, INFO Flight state {self.estimated_state.name}", file=self.file)
-        lat = self.fdr_data_by_name.get("latitude").value
-        lon = self.fdr_data_by_name.get("longitude").value
-        alt = self.header.get("ABGL").value
-        hdg = self.fdr_data_by_name.get("heading").value
-        spd = self.header.get("MOVE").value
+        lat = self.fdr_data.get("latitude").value
+        lon = self.fdr_data.get("longitude").value
+        alt = self.fdr_data.get("agl").value
+        hdg = self.fdr_data.get("heading").value
+        spd = self.fdr_data.get("gs").value
         print(f"COMM, INFO lat={lat}, lon={lon}, alt={alt}, hdg={hdg}, speed={spd}", file=self.file)
         print(f"COMM, INFO supervisor={AUTOSTART_FREQUENCY} recorder={self.frequency}", file=self.file)
         print(f"COMM, INFO custom_chocks={self.custom_chocks.dataref if self.custom_chocks is not None else 'none'}", file=self.file)
@@ -1655,7 +1632,7 @@ class PythonInterface:
         # FDR Datarefs
         if len(self.fdr_optional) > 0:
             print("\n", file=self.file)
-            for d in self.fdr_optional:
+            for d in self.fdr_optional.values():
                 if d.dref is None:
                     self.debug(f"dataref {d} not found, not monitored", force=True)
                     print(f"COMM, dataref {d} not found, not monitored", file=self.file)
@@ -1667,7 +1644,7 @@ class PythonInterface:
 
         # FDRReader meta
         print("\n", file=self.file)
-        for d in self.fdr_all_data:
+        for d in self.fdr_all_data_values:
             print(f"COMM, {d.fun()}", file=self.file)
 
         # Additional comments
@@ -1675,7 +1652,7 @@ class PythonInterface:
 
         # CSV Header
         columns = []
-        for d in self.fdr_all_data:
+        for d in self.fdr_all_data_values:
             if "zulu" in d.dataref:
                 continue
             if d.value_length < 2:
@@ -1696,7 +1673,7 @@ class PythonInterface:
             data = f"DATA, {round((self.simulator_zulu_datetime - self.start_time).total_seconds(), 1)}"
         elif self.version == 4:
             data = self.simulator_zulu_datetime.strftime("%H:%M:%S.%f")
-        data = data + "," + ",".join(expand([d.value for d in self.fdr_all_data if "zulu" not in d.dataref]))
+        data = data + "," + ",".join(expand([d.value for d in self.fdr_all_data_values if "zulu" not in d.dataref]))
         return data + "\n"
 
     @property
@@ -1752,6 +1729,8 @@ class PythonInterface:
 
     #
     # NAVAIDS
+    # Record nav aids around the aircraft
+    # or pointed by aircraft nav tuned frequencies
     #
     def save_navaids(self):
         # On file close, Writes encountered navaids to FDR as comments
@@ -1765,15 +1744,10 @@ class PythonInterface:
         NAVAID_CYCLE = [xp.Nav_NDB, xp.Nav_Fix, xp.Nav_VOR, xp.Nav_Fix, xp.Nav_DME, xp.Nav_Fix]
         # ?? sim/cockpit2/radios/actuators/tac1_channel
         # ?? sim/cockpit2/radios/actuators/tac2_channel
-        if len(self.navaid_freqs) == 0:
-            for d in NAVAID_FREQUENCIES:
-                fdrd = FDRData.new(dataref=d)
-                fdrd.init()
-                self.navaid_freqs.append(fdrd)
         try:
             # do not always search for several types to find more nav aids around
-            lat = self.fdr_data_by_name.get("latitude").value
-            lon = self.fdr_data_by_name.get("longitude").value
+            lat = self.fdr_data.get("latitude").value
+            lon = self.fdr_data.get("longitude").value
             types = NAVAID_CYCLE[self.navaid_counter % len(NAVAID_CYCLE)]
             self.navaid_counter += 1
             navaid = xp.findNavAid(lat=lat, lon=lon, navType=types)
@@ -1795,7 +1769,7 @@ class PythonInterface:
                     self.navaids[k] = c
                     self.debug(f"collect_navaids: {c}")
 
-            for radio in self.navaid_freqs:
+            for radio in self.all_navaid_freqs:
                 freq = radio.value
                 if freq is not None:
                     if freq > 80000:
@@ -1849,10 +1823,10 @@ class PythonInterface:
                     xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=1, refCon=self.commandRefCons[c])
                     # self.commandRefCons[c+"A"] = {"command": c, "before": 0}
                     # xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c+"A"])
-                    self.debug(f"start_command_logging: installed {c} *** EXPERIMENTAL/COMMAND")
+                    self.debug(f"start_command_logging: installed {c}")
                 else:
                     del self.commandRefs[c]
-            self.debug(f"start_command_logging: {len(self.commandRefs)} done", force=True)
+            self.debug(f"start_command_logging: logging {len(self.commandRefs)} command", force=True)
 
     def stop_command_logging(self):
         if len(self.commandRefs) > 0:

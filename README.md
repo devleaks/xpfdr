@@ -176,7 +176,7 @@ during each data collection, but only those values that are requested are return
 ### Default Values
 
 Without preference file, FDR generates Version 4 file for APPLE architecture.
-The recording frequency is 10 seconds, and reporting frequency occurs every 200 records.
+The recording frequency is 10 seconds, and reporting frequency occurs every 100 records.
 (Reporting is written in X-Plane log.txt file and is useful to monitor that FDR is logging
 events in the FDR file.)
 Without preference file, FDR only record mandatory header fields once,
@@ -205,10 +205,15 @@ FDR collects the following data which is the minimum required in the FDR file:
   - UTC time of day with fractional second if available
   - longitude
   - latitude
-  - altitude
+  - elevation (MSL, WSG84 ellipsoid, in feet)
   - heading
   - pitch
   - roll
+
+In addition to these mandatory values, FDR always records the following two convenient values:
+  - ground speed
+  - altitude (above ground level, in meters)
+Both are collected to display conventional flight report with the viewer.
 
 `fdr_optional` data is saved after these mandatory values as additional columns,
 one column per additional dataref.
@@ -252,12 +257,24 @@ that allow for better display of information in the viewer.
   - Collected navaids are displayed,
   - Moment of execution of monitored commands are also shown.
 
+If using FDR default values/settings without preference file,
+FDR Viewer display a Flightradar/Flight Aware type of graph with
+  - A map of the flight,
+  - Ground speed and altitude above ground,
+  - Mandatory values collected by FDR: Heading, pitch, and roll.
+
+If additional values are requested through a preference file,
+all additional values are presented in similar graphs.
+
+Map is presented by [Leaflet](https://leafletjs.com). Charts are presented by [ChartJS](https://www.chartjs.org).
+All code by Pierre, a HI. Hence bugs.
+
 
 ## Troubleshooting
 
 FDR logs a few messages in X-Plane `log.txt` file.
 
-The script may not work on X-Plane release 11 as it depends on newer XPPython3 features.
+The script will not work on X-Plane release 11 as it depends on newer XPPython3 features.
 
 
 # See Also

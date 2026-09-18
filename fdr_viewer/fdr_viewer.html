@@ -21,15 +21,15 @@
         #charts {
             height: 200px;
         }
-        #buttons_container {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-        }
-        .cols {
+        .chart {
             vertical-align: top;
             float: left;
             height: 200px;
+        }
+        #buttons {
+          display: flex;
+          justify-content: center;
+          align-items: center;
         }
     </style>
 </head>
@@ -37,10 +37,9 @@
     <div id="map"></div>
     <div id="charts">
         <canvas id="speedAltChart"></canvas>
-        <div id="buttons_container"></div>
+        <div id="buttons"></div>
         <!-- additional charts will come here -->
-        <div id="columns">
-        </div>
+        <!-- <canvas id="chart#" class="chart"></canvas> -->
     </div>        
 <script language="javascript">
 const VERSION = "1.4.0"
@@ -114,7 +113,7 @@ function NAVAID_ICON(navType) {
 
 // Main chart shows speed and altitude (always)
 // Like at flightradar24 and flightaware.
-const SPEED_DATA = "ground_speed";  // name of GeoJSON feature property for speed
+const SPEED_DATA = "gs";  // name of GeoJSON feature property for speed
 const SPEED_CONVERT = {
     "m/s": 1,
     "km/h": 3.6,
@@ -122,8 +121,9 @@ const SPEED_CONVERT = {
 };
 const SPEED_UNIT = "kt";
 const SPEED_COLOR = [253, 128, 8];
+const SPEED_LABEL = "Ground speed (m/s)"
 
-const ALTITUDE_DATA = "altitude";  // name of GeoJSON feature property for altitude
+const ALTITUDE_DATA = "agl";  // name of GeoJSON feature property for altitude
 const ALTITUDE_CONVERT = {
     "m": 0.3048,
     "ft": 1,
@@ -132,24 +132,26 @@ const ALTITUDE_CONVERT = {
 const ALTITUDE_UNIT = "ft";
 const ALTITUDE_COLOR = [15, 128, 255];
 const SHOW_ALTITUDE = true;  // include altitude in GeoJSON file
+const ALTITUDE_LABEL = "Altitude above ground (m)"
 
 const CHART_CURSOR_COLOR = "rgba(0, 0, 255, 0.4)";
 
 // list of GeoJSON feature properties to ignore for charting
-const IGNORE = ["id", "UTC Time", "_raw_ts", "latitude", "longitude", SPEED_DATA, ALTITUDE_DATA];
+const IGNORE = ["id", "UTC Time", "_raw_ts", "latitude", "longitude", "altitude", SPEED_DATA, ALTITUDE_DATA];
 
 // In CSV file, first line of file is column header, comma separated list of optionally quoted strings
 const CSV_COLUMN_NAMES = {  // Mandatory column names
     timestamp: "_raw_ts",
     latitude: "latitude",
     longitude: "longitude",
-    altitude: null,
-    ground_speed: null,
+    altitude: ALTITUDE_DATA,
+    ground_speed: SPEED_DATA,
 }
 
 const MAX_LINES = 3;  // ideal number of charts rows, BUT grows as needed to accomodate all data
 const MAX_COLUMNS = 4;  // reasonable max.
 const MAX_DATA_PER_CHART = 6;  // reasonable max.
+const COMPACT = 1;  // 0=no compact, 1=1 row max_col charts; 2=1 chart, max_col data
 
 const AUTO_ADJUST_LAYOUT = true;
 var NUM_COLUMNS = 3;          
@@ -186,7 +188,7 @@ const DATA_KEYWORDS = [
   "TEXT",
   "MARK",
   "EVNT",
-//  "DATA",
+//"DATA",
 ]
 
 // Container for data
@@ -239,12 +241,13 @@ function parseCSVfile(text) {
     const lon_idx = columns.indexOf(CSV_COLUMN_NAMES.longitude);
     const ts_idx = columns.indexOf(CSV_COLUMN_NAMES.timestamp);
     if (ts_idx == -1 || lat_idx == -1 || lon_idx == -1) {
-        console.log("No time, latitude and longitude in file");
+        console.error("No time, latitude and longitude in file");
         return {};
     }
-    console.log("indices", ts_idx, lat_idx, lon_idx);
+    console.log(columns);
     const alt_idx = CSV_COLUMN_NAMES.altitude ? columns.indexOf(CSV_COLUMN_NAMES.altitude) : -1;
     const gs_idx = CSV_COLUMN_NAMES.ground_speed ? columns.indexOf(CSV_COLUMN_NAMES.ground_speed) : -1;
+    console.log("indices", ts_idx, lat_idx, lon_idx, alt_idx, gs_idx);
     let i = 1;
     let count = 0;
     let fc = []
@@ -257,7 +260,7 @@ function parseCSVfile(text) {
         }
         const values = line.split(",");
         if (values.length != columns.length) {
-            console.log("columns/values: non matching length", i, columns.length, values.length);
+            console.warning("columns/values: non matching length", i, columns.length, values.length);
             continue;
         }
         let coords = [parseFloat(values[lon_idx]), parseFloat(values[lat_idx])]
@@ -300,27 +303,27 @@ function parseCSVfile(text) {
 function parseFDRfile(text) {
     let arch = String.fromCharCode(text.charCodeAt(0))
     if (["A", "I"].indexOf(arch) == -1) {
-        console.log("invalid X-Plane FDR file architecture", arch);
+        console.error("invalid X-Plane FDR file architecture", arch);
         return {};
     }
     console.log("FDR file architecture", arch);
 
     let cr = text.charCodeAt(1)
     if (cr != 13) {
-        console.log("end of first line should be \\r (13); got", cr);
+        console.warning("end of first line should be \\r (13); got", cr);
     }
     let nl = text.charCodeAt(2)
     if (nl == 10) { // ok...
-        console.log("got extra \\l (10)", nl);
+        console.warning("got extra \\l (10)", nl);
         nl = text.charCodeAt(3)
     }
     if (nl != 51 && nl != 52) {  // "3" and "4"
-        console.log("invalid X-Plane FDR file version", String.fromCharCode(nl), nl);
+        console.error("invalid X-Plane FDR file version", String.fromCharCode(nl), nl);
         return {};
     }
     let fdr_version = nl - 48;
     if ([3, 4].indexOf(fdr_version) == -1) {
-        console.log("invalid X-Plane FDR file version", fdr_version);
+        console.error("invalid X-Plane FDR file version", fdr_version);
         return {};
     }
     console.log("FDR data format version", fdr_version);
@@ -369,7 +372,7 @@ function parseFDRfile(text) {
                         params["factor"]
                     );
                     fdr_data.push(d);
-                    console.log(d);
+                    // console.log(d);
                 } else if (a.startsWith("NavAid(")) {
                     let params = nameValue(a)
                     let d = {
@@ -390,7 +393,7 @@ function parseFDRfile(text) {
                         }
                     };
                     navaids.push(d)
-                    console.log(d)
+                    // console.log(d)
                 } else if (a.startsWith("Command(")) {
                     let params = nameValue(a)
                     let d = {
@@ -408,7 +411,7 @@ function parseFDRfile(text) {
                         }
                     };
                     commands.push(d)
-                    console.log(d)
+                    // console.log(d)
                 } else if (a.startsWith("UTC")) {
                     columns = a.split(",");
                     for(j=0;j<columns.length;j++) {
@@ -436,7 +439,7 @@ function parseFDRfile(text) {
             let ms = Math.round(1000 * (t[2] - Math.round(t[2])))
             d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), t[0], t[1], Math.round(t[2]), ms);
             d.setUTCHours(t[0]);
-            console.log("date", date, t, ms, d)
+            // console.log("date", date, t, ms, d)
         }
         let props = {
             "UTC Time": d.toISOString(),
@@ -620,7 +623,7 @@ function buildMap(text, filetype) {
         for(i = 0; i < NUM_COLUMNS; i++) {
             let div = document.createElement("div");
             div.id = "charts" + i;
-            div.classList.add("cols");
+            div.classList.add("chart");
             div.style.width = width;
             container.appendChild(div);
         }
@@ -637,6 +640,18 @@ function optimizeChartLayout(numdata) {
             console.log("optimizeChartLayout maxima");
             return;
         }
+        const limit = Math.min.apply(null, [MAX_COLUMNS, MAX_DATA_PER_CHART])
+        console.log("optimizeChartLayout minimal", limit);
+        if (numdata <= limit && COMPACT > 0) {
+            if (COMPACT == 1) {
+                NUM_DATA_PER_CHART = 1;
+                NUM_COLUMNS = numdata;
+            } else if (COMPACT == 2) {
+                NUM_DATA_PER_CHART = numdata;
+                NUM_COLUMNS = 1;
+            }
+            return;
+        }
         if (numdata <= (MAX_LINES * NUM_COLUMNS)) { // max chart density but only 1 data per chart
             NUM_DATA_PER_CHART = 1;
             NUM_COLUMNS = Math.ceil(numdata / MAX_LINES);
@@ -651,7 +666,8 @@ function optimizeChartLayout(numdata) {
         NUM_COLUMNS = Math.ceil(per_line / NUM_DATA_PER_CHART);
         let e_lines = Math.ceil(numdata / (NUM_DATA_PER_CHART * NUM_COLUMNS));
         // console.log("optimizeChartLayout", numdata, per_line, e_lines, MAX_LINES, NUM_COLUMNS, NUM_DATA_PER_CHART);
-    } catch { // restore defaults
+    } catch (e) { // restore defaults
+        console.log(e);
         console.log("optimizeChartLayout default");
         NUM_COLUMNS = 3;          
         NUM_DATA_PER_CHART = 4;
@@ -702,7 +718,7 @@ function buildSpeedAltChart() {
             borderColor: "rgba(" + SPEED_COLOR.join(",") + ", 1)", // orange
             borderWidth: 2,
             data: spd,
-            label: SPEED_DATA.replaceAll("_", " "),
+            label: SPEED_LABEL,
             pointRadius: 0,
             tension: 0,
             yAxisID: "y",
@@ -711,7 +727,7 @@ function buildSpeedAltChart() {
             borderColor: "rgba(" + ALTITUDE_COLOR.join(",") + ", 1)", // blue
             borderWidth: 2,
             data: alt,
-            label: ALTITUDE_DATA.replaceAll("_", " "),
+            label: ALTITUDE_LABEL,
             pointRadius: 0,
             tension: 0,
             yAxisID: "y1",
@@ -846,7 +862,7 @@ function buildSpeedAltChart() {
     const ctx = document.getElementById("speedAltChart");
     speedAltChart = new Chart(ctx, config);
 
-    const container = document.getElementById("buttons_container");
+    const container = document.getElementById("buttons");
     let button = document.createElement("button");
     button.type ="button";
     button.innerHTML = "Reset zoom";
