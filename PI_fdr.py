@@ -515,6 +515,13 @@ NAVAID_FREQUENCIES = [
 #
 # Airbus Flight Phase specific thresholds
 # S.I., for A321, may need adjustment on acf model, engines, etc. We'll see later
+#
+# Why Airbus flight phase?
+# Logging can record numerous data often.
+# For simulation, a way to tune this is to adjust collection frequency with the flight phase:
+# Faster collection on takeoff, approach, landing, slower collection on cruise, when stopped...
+#
+
 S80KT = 80 * 0.5144444  # m/s
 FAST = 500  # 1 Mach = 340.29m/s, sea level
 A1500FT = 1500 * 0.3048  # m
@@ -527,15 +534,15 @@ FIVEMIN = 300.0  # secs
 
 class AIRBUS_PHASE(IntEnum):
     OFF = 0  # cold and dark
-    ELECPOWER = 1  # coffie machine available
-    FIRSTENGSTARTED = 2  # expresso, capuccino possible
+    ELECPOWER = 1  # Coffie machine available
+    FIRSTENGSTARTED = 2  # Expresso, capuccino possible
     FIRSTENGTOPOWER = 3
-    ACCEL80KT = 4
+    ACCEL80KT = 4   # super-frequent for take off
     LIFTOFF = 5
-    ABOVE1500FT = 6
-    BELOW800FT = 7
+    ABOVE1500FT = 6  # reduce progressively for cruise
+    BELOW800FT = 7  # super-frequent for approach
     TOUCHDOWN = 8
-    DECEL80KT = 9
+    DECEL80KT = 9   # reduce progressively for taxi, parking...
     SECONDENGSHUTDOWN = 10
     FIVEMINAFTER = 11
 

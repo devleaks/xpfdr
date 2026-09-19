@@ -609,6 +609,8 @@ function buildMap(text, filetype) {
     // add command occurences
     commands.forEach((m) => { m.addTo(map); })
 
+    map.fitBounds(latlngs)
+
     // guess properties list from first point feature
     const f = pointFeatures[0];
     chartCandidates =  Object.keys(f.properties)
