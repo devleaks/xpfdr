@@ -37,12 +37,13 @@ for more precision.
 In addition to mandatory information in the record file,
 FDR stores meta data information for further processing and handling.
 Meta data is saved as a FDR record COMMent and can be ignored.
-
 Meta Data is used, for example, by the FDR reader.
 
 In the FDR record file, the recorder writes
-  - A list of columns for a record
-  - The corresponding list of units used for each column if available.
+
+  - The list of units for each column in a record if available.
+  - A list of columns names for a record
+
 Information is written as a comment before the data records.
 
 
@@ -50,12 +51,16 @@ Information is written as a comment before the data records.
 
 FDR first look for a aircraft specific FDR preference file in the home directory of an aircraft
 `<X-Plane 12 Folder>/Aircraft/.../myaircraft/fdr.prf`.
-This allows for recording aircraft-specific data.
+This allows for recording *aircraft-specific* data.
+This is very convenient as values recorded for a smaller GA or a larger airliner
+differ slightly.
 
-Preferences are looked up again when aircraft is changed.
+Preferences are looked up again when the aircraft is changed.
 
 IF no aircraft specific preference file is found, FDR look in X-Plane Preference folder
 `<X-Plane 12 Folder>/Output/preferences/fdr.prf`.
+This preference file should only contain generic data, not specific to particular aircraft.
+
 
 The preference file is a Yaml-formatted readable text file structured as follow:
 
@@ -64,24 +69,21 @@ fdr_version: 4
 fdr_arch: APPLE
 description: Demonstration preference file
 frequency: 5
-report_frequency: 200
+report_frequency: 100
 chocks: AirbusFBW/Chocks
 commands:
   - sim/map/show_current
 fdr_info:
-  - name: ICAO
+  - name: aircraft_icao
     dataref: sim/aircraft/view/acf_ICAO
-fdr_optional:
-  - name: ground_speed
-    dataref: sim/flightmodel/position/groundspeed
-    unit: m/s
+fdr_data:
   - name: true_air_speed
     dataref: sim/flightmodel/position/true_airspeed
     unit: m/s
-  - name: v_speed
+  - name: vertical_speed
     dataref: sim/cockpit2/gauges/indicators/vvi_fpm_pilot
     unit: m/s # dataref is ft/min, converted by callback
-    callback: "lambda x: x * 0.00508"
+    callback: ${x} 0.00508 *
 ```
 
  - `fdr_version` identifies the version of the recording file that is generated. Version 3 and 4 are supported.
@@ -94,6 +96,7 @@ fdr_optional:
 
  - `report_frequency` is the number of data collections reported in the log file.
     It allows for simple monitoring of the data collection process.
+    Every 100 records, a message is written into log.txt
 
  - `chocks` is a dataref name that will be used to check whether chocks are set (non zero value) or not (zero value).
 
@@ -102,34 +105,39 @@ fdr_optional:
    Example of FDR info fields may include departure and arrival airport, weather information...
    as long as the data is available as a dataref.
 
- - `fdr_optional` is a list of data structure that are collected and reported.
+ - `fdr_data` is a list of data structure that are collected and reported.
 
- - `commands` is a list of commands, expressed as X-Plane path. The execution of any of these command in logged.
-   (This is an experimental feature.)
+ - `commands` is a list of commands, expressed as X-Plane path.
+    The execution of any of these command in logged.
+    (This is an experimental feature.)
 
 
 ### Collected Data Structure
 
 Collected data is described by the following fields:
   - `name`: Name of the data field, used as a column header in the FDR file. Mandatory.
-  - `dataref`: Name of dataref whose value is part of the data record. Mandatory.
-  - `units`: Information field of dataref value unit. Saved as a comment in the header of the record file. Optional.
+  - `dataref`: Name of dataref, its value is part of the data record. Mandatory.
+  - `units`: Information field of dataref value unit. Saved as a comment in the header of the record file.
+     Optional but highly recommanded.
   - `factor`: Convertion factor (float value) used by FDR DREF parameter. Optional.
-  - `callback`: Reverse polish notation expression. `${x}` is replaced with the dataref value. Optional.
+  - `callback`: Reverse polish notation expression, in which `${x}` is replaced with the dataref value. Optional.
 
 Callback expression is very limited in size and capabilities.
-Their goal is a provide an easy mechanism to alter raw dataref values to meaningful record value
-with minimal modification.
+It is a Rever Polish Notation expression.
+Its goal is a provide an easy mechanism to alter raw dataref values to meaningful record value
+with minimal impact.
 
 Typical, unit adjustment expressions like
 
+ - `${x} 0.00508 *` : convert feet per minute to meters per second (see example above)
  - `${x} 0.3048 *` : convert ft to m
- - `${x} 32 - 1.8 /` : convert farenheit to celsius
- - `${x} 0 round 0 eq` : returns 1.0 when rounds to zero
+ - `${x} 32 - 1.8 /` : convert Farenheit to Celsius for temperature
+ - `${x} 0 round 0 eq` : returns 1.0 when value rounds to zero
 
 In the above expression `${x}` is the raw _numeric_ dataref value.
 
 This scheme is a alternate, more sophisticated method than the built-in FDR DREF factor parameter.
+
 
 ### Experimental Feature for Array datarefs
 
@@ -168,12 +176,14 @@ Index list must be a comma separated list of integer value.
 The drawback of these slices or multi-index selection
 is that all values of the dataref array are fetched
 during each data collection, but only those values that are requested are returned.
+(On a longer term, this can become a performance issue if many arrays are requested.
+As an alternative, it is always possible to fetch a single array value.)
 
 
 *This is an experimental feature and may not work as expected. Use with caution.*
 
 
-### Default Values
+### Default Behavior and Values
 
 Without preference file, FDR generates Version 4 file for APPLE architecture.
 The recording frequency is 10 seconds, and reporting frequency occurs every 100 records.
@@ -199,10 +209,10 @@ FDR collects the following data which is required in the header of the FDR file:
   - `TEMP`: sea-level temperatre during the flight in degrees Farenheit (ex: `65`).
   - `WIND`: wind during th flight in degrees then knots (ex: `230,17`).
 
-(Note: FDR Version 3 and Version 4 required fields differ slightly.)
+(Note: FDR Version 3 and Version 4 _required_ fields differ slightly.)
 
 FDR collects the following data which is the minimum required in the FDR file:
-  - UTC time of day with fractional second if available
+  - UTC time of day (with fractional second if available)
   - longitude
   - latitude
   - elevation (MSL, WSG84 ellipsoid, in feet)
@@ -215,8 +225,8 @@ In addition to these mandatory values, FDR always records the following two conv
   - altitude (above ground level, in meters)
 Both are collected to display conventional flight report with the viewer.
 
-`fdr_optional` data is saved after these mandatory values as additional columns,
-one column per additional dataref.
+`fdr_data` data is saved after these mandatory values as additional columns,
+one column per additional data.
 
 
 ## Installation
@@ -227,7 +237,7 @@ It needs [XPPython3](https://xppython3.readthedocs.io/en/latest/) X-Plane plugin
 Install `PI_fdr.py` file in `<X-Plane 12 Folder>/Resources/plugins/PythonPlugins`.
 Reload scripts in XPPython3 through the Plugin menu entry.
 
-On first start, the script may download missing python package like Yaml.
+On first start, or after XPPython3 upgrades, the script may download missing python package like Yaml.
 When completed, simply reload XPPython3 script again.
 
 
@@ -243,8 +253,7 @@ In the GeoJSON file, FDR data is added as a list of feature properties along wit
 ## Viewer
 
 There is a compagnon web page `frd_viewer.html` to display either a GeoJSON formatted FDR file
-or a Version 4 FDR file
-in a simple, basic map and charting page.
+or a Version 4 FDR file in a simple, basic map and charting page.
 
 You can drop FDR v3 or v4 files, GeoJSON or CSV files *generated by fdr_reader*.
 
@@ -260,7 +269,7 @@ that allow for better display of information in the viewer.
   - Moment of execution of monitored commands are also shown.
 
 If using FDR default values/settings without preference file,
-FDR Viewer display a Flightradar/Flight Aware type of graph with
+FDR Viewer display a Flightradar24/Flight Aware type of graph with
   - A map of the flight,
   - Ground speed and altitude above ground,
   - Mandatory values collected by FDR: Heading, pitch, and roll.
@@ -276,7 +285,8 @@ All code by Pierre, a HI. Hence bugs.
 
 ## Troubleshooting
 
-FDR logs a few messages in X-Plane `log.txt` file.
+FDR logs a few messages in X-Plane `log.txt` file, especially reports it is working
+and logging events.
 
 The script will not work on X-Plane release 11 as it depends on newer XPPython3 features.
 

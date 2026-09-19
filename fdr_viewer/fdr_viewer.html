@@ -43,7 +43,7 @@
         <!-- <canvas id="chart#" class="chart"></canvas> -->
     </div>        
 <script language="javascript">
-const VERSION = "1.5.0"
+const VERSION = "1.5.1"
 /*
 CHANGELOG
 
@@ -136,7 +136,7 @@ const ALTITUDE_COLOR = [15, 128, 255];
 const SHOW_ALTITUDE = true;  // include altitude in GeoJSON file
 const ALTITUDE_LABEL = "Altitude above ground (m)"
 
-const CHART_CURSOR_COLOR = "rgba(0, 0, 255, 0.4)";
+const CHART_CURSOR_COLOR = "rgba(102, 255, 255, 0.7)";
 
 // list of GeoJSON feature properties to ignore for charting
 const IGNORE = ["id", "UTC Time", "_raw_ts", "latitude", "longitude", "altitude", SPEED_DATA, ALTITUDE_DATA];
@@ -167,6 +167,7 @@ var pointFeatures = {}; // individual points
 var latlngs = [];   // minimal data for cursor
 var tlabels = [];   // global (uniform) x-axis time ticks
 var speedAltChart = undefined; // for cursor positioning
+var map; // leaflet map
 var mapCursor = undefined; // map cursor
 var otherCharts = {}; // for cursor positioning
 var chartCandidates = Array(); // additional charts to plot from properties
@@ -586,7 +587,7 @@ function buildMap(text, filetype) {
     let avglat = pointFeatures.reduce( (acc, f) => acc + f.geometry.coordinates[1], 0) / pointFeatures.length;
     let avglon = pointFeatures.reduce( (acc, f) => acc + f.geometry.coordinates[0], 0) / pointFeatures.length;
     // console.log(avglat, avglon);
-    let map = L.map("map").setView([avglat, avglon], 13);
+    map = L.map("map").setView([avglat, avglon], 13);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 18,
         attribution: "&copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>"
@@ -597,7 +598,8 @@ function buildMap(text, filetype) {
         fill: false
     }).addTo(map);
     mapCursor = L.marker(latlngs[0], {
-        icon: AIRCRAFT_ICON
+        icon: AIRCRAFT_ICON,
+        autoPanOnFocus: true
     }).addTo(map);
 
     // add interaction "invisible" points
@@ -609,7 +611,7 @@ function buildMap(text, filetype) {
     // add command occurences
     commands.forEach((m) => { m.addTo(map); })
 
-    map.fitBounds(latlngs)
+    map.fitBounds(latlngs);
 
     // guess properties list from first point feature
     const f = pointFeatures[0];
@@ -797,8 +799,8 @@ function buildSpeedAltChart() {
                     position: "top",
                 },
                 title: {
-                  display: true,
-                  text: "Above: map, below: Aircraft speed and altitude MSL"
+                  display: false,
+                  text: "Above: map, below: Aircraft speed and altitude above ground"
                 },
                 tooltip: {
                     callbacks: {
@@ -877,6 +879,16 @@ function buildSpeedAltChart() {
     button.id = "zoom";
     button.addEventListener("click", function() {
         speedAltChart.resetZoom();
+    });
+    container.appendChild(button);
+
+    container.innerHTML += "&nbsp;"
+    button = document.createElement("button");
+    button.type ="button";
+    button.innerHTML = "Whole flight";
+    button.id = "zoom";
+    button.addEventListener("click", function() {
+        map.fitBounds(latlngs);
     });
     container.appendChild(button);
 }
@@ -1057,6 +1069,10 @@ function tracking(src, dst) {
     return convertRadiansToDegrees(Math.atan2(y, x));
 }
 
+function cursorOnEdge(latlon) {
+    return true;
+}
+
 function moveMapCursor(idx) {
     if (idx == undefined) {
         console.warn("moveMapCursor", idx);
@@ -1068,6 +1084,9 @@ function moveMapCursor(idx) {
                                             Math.round(AIRCRAFT_ICON_SIZE/2) + "px";
     mapCursor._icon.style.transform += " rotateZ(" + Math.round(rot) + "deg)";
     // console.log(mapCursor._icon.style.transform);
+    if (cursorOnEdge(latlngs[idx])) {
+        map.panTo(latlngs[idx]);
+    }
 }
 
 function moveChartCursor(idx) {

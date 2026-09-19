@@ -497,7 +497,7 @@ FDR_DATA = [
     FDRData(name="gs", dataref="sim/flightmodel2/position/groundspeed", unit="m/s"),
     FDRData(name="agl", dataref="sim/flightmodel2/position/y_agl"),
 ]
-# Through preferences, user can define a set of fdr_optional datarefs.
+# Through preferences, user can define a set of fdr_data datarefs.
 
 # One day, they be part of preferences
 NAVAID_FREQUENCIES = [
@@ -560,7 +560,7 @@ class AirbusFlightPhase:
         frequency: 1
         report_frequency: 100
         chocks: AirbusFBW/Chocks
-        fdr_optional:
+        fdr_data:
           - name: ground_speed
             dataref: sim/flightmodel/position/groundspeed
             unit: m/s
@@ -884,7 +884,7 @@ class PythonInterface:
         self.prefs = {}
 
         self.header = {d.name: d for d in HEADER}  # collected once
-        self.fdr_data = {d.name: d for d in FDR_DATA}  # mandatory reported values
+        self.fdr_mand = {d.name: d for d in FDR_DATA}  # mandatory reported values
 
         self.custom_chocks = None
 
@@ -919,7 +919,7 @@ class PythonInterface:
 
         # Can be changed in preferences
         self.fdr_info = {}
-        self.fdr_optional = {}
+        self.fdr_data = {}
         self.navaid_freqs_optional:List[FDRData] = []
         self.last_acf = ""
         self.frequency = WRITE_FREQUENCY
@@ -930,7 +930,7 @@ class PythonInterface:
     @property
     def fdr_all_data_values(self) -> List[FDRData]:
         # all datarefs to collect at each iteration
-        return list(self.fdr_data.values()) + list(self.fdr_optional.values())
+        return list(self.fdr_mand.values()) + list(self.fdr_data.values())
 
     @property
     def all_navaid_freqs(self) -> List[FDRData]:
@@ -996,7 +996,7 @@ class PythonInterface:
             #
             # ################################################
 
-            gndsp = self.fdr_data.get("gs").value
+            gndsp = self.fdr_mand.get("gs").value
             if gndsp is None:  # we don't know...
                 self.debug("flight_status: no movement info")
                 return FLIGHT.UNKNOWN
@@ -1015,7 +1015,7 @@ class PythonInterface:
                 self.debug("flight_status: started moving")
                 self.last_stop = None
             # Are we in the air?
-            elev = self.fdr_data.get("agl").value
+            elev = self.fdr_mand.get("agl").value
             if elev is None or elev < MIN_LIFTOFF_ABGL:
                 return FLIGHT.MOVING_ON_GROUND
             # Yes we are in the air...
@@ -1120,9 +1120,9 @@ class PythonInterface:
     def calibration(self, takeoff: bool = True):
         movement = "TAKEOFF" if takeoff else "LANDING"
         try:
-            lat = self.fdr_data.get("latitude").value
-            lon = self.fdr_data.get("longitude").value
-            alt = self.fdr_data.get("agl").value
+            lat = self.fdr_mand.get("latitude").value
+            lon = self.fdr_mand.get("longitude").value
+            alt = self.fdr_mand.get("agl").value
             self.debug(f"CALI lat={lat}, lon={lon}, alt={alt}", force=True)
             self.debug(f"COMM CALI {movement} PRECISION: recording frequency={self.frequency} secs.", force=True)
             self.debug(f"COMM CALI {movement} not written to FDR file", force=True)
@@ -1222,7 +1222,7 @@ class PythonInterface:
         for d in self.header.values():
             d.init()
 
-        for d in self.fdr_data.values():
+        for d in self.fdr_mand.values():
             d.init()
 
         for d in self.navaid_freqs:
@@ -1386,19 +1386,19 @@ class PythonInterface:
             self.custom_chocks = None
 
         # Add optional datarefs
-        opts = newprefs.get("fdr_optional", {})
+        opts = newprefs.get("fdr_data", {})
         if len(opts) > 0:
-            if len(self.fdr_optional) > 1:
-                self.debug(f"install_preferences: uninstalling {len(self.fdr_optional)} optional datarefs", force=True)
-            self.fdr_optional = {}
+            if len(self.fdr_data) > 1:
+                self.debug(f"install_preferences: uninstalling {len(self.fdr_data)} optional datarefs", force=True)
+            self.fdr_data = {}
             for d in opts:
                 callback = d.get("callback")
                 if callback is not None:
                     del d["callback"]
                 f = FDRData(**d)
                 f.init()
-                self.fdr_optional[f.name] = f
-            self.debug(f"install_preferences: added {len(self.fdr_optional)} datarefs to monitor", force=True)
+                self.fdr_data[f.name] = f
+            self.debug(f"install_preferences: added {len(self.fdr_data)} datarefs to monitor", force=True)
 
         # Add information datarefs
         opts = newprefs.get("fdr_info", {})
@@ -1439,7 +1439,7 @@ class PythonInterface:
         author = self.header.get("AUTH").value
         self.debug(f"install_preferences: {icao} by {author}", force=True)
         if icao in ["A321", "A21N"] and author in ["Gliding Kiwi", "GlidingKiwi", "ToLiss"]:
-            all_datarefs_by_name = self.header | self.fdr_info | self.fdr_data | self.fdr_optional
+            all_datarefs_by_name = self.header | self.fdr_info | self.fdr_mand | self.fdr_data
             self._afp = AirbusFlightPhase(
                 dt=self.simulator_zulu_datetime, datarefs=all_datarefs_by_name, alt_reg=self.vertical_lr, spd_reg=self.speed_lr, airtime=self.had_air_time
             )
@@ -1593,11 +1593,11 @@ class PythonInterface:
             return
         self.estimated_state = self.flight_status
         print(f"\nCOMM, INFO Flight state {self.estimated_state.name}", file=self.file)
-        lat = self.fdr_data.get("latitude").value
-        lon = self.fdr_data.get("longitude").value
-        alt = self.fdr_data.get("agl").value
-        hdg = self.fdr_data.get("heading").value
-        spd = self.fdr_data.get("gs").value
+        lat = self.fdr_mand.get("latitude").value
+        lon = self.fdr_mand.get("longitude").value
+        alt = self.fdr_mand.get("agl").value
+        hdg = self.fdr_mand.get("heading").value
+        spd = self.fdr_mand.get("gs").value
         print(f"COMM, INFO lat={lat}, lon={lon}, alt={alt}, hdg={hdg}, speed={spd}", file=self.file)
         print(f"COMM, INFO supervisor={AUTOSTART_FREQUENCY} recorder={self.frequency}", file=self.file)
         print(f"COMM, INFO custom_chocks={self.custom_chocks.dataref if self.custom_chocks is not None else 'none'}", file=self.file)
@@ -1638,9 +1638,9 @@ class PythonInterface:
         print(f"WIND, {int(self.header.get('WDIR').value)}," + f" {round(self.header.get('WSPD').value, 2)}", file=self.file)
 
         # FDR Datarefs
-        if len(self.fdr_optional) > 0:
+        if len(self.fdr_data) > 0:
             print("\n", file=self.file)
-            for d in self.fdr_optional.values():
+            for d in self.fdr_data.values():
                 if d.dref is None:
                     self.debug(f"dataref {d} not found, not monitored", force=True)
                     print(f"COMM, dataref {d} not found, not monitored", file=self.file)
@@ -1669,7 +1669,7 @@ class PythonInterface:
                 for i in d.indices:
                     columns.append(f"{d.name}[{i}]")
         columns = ", ".join(columns)
-        print("\nCOMM, UTC time, " + columns + "\n", file=self.file)
+        print("\nCOMM, UTC time, " + columns + "\n", file=self.file, flush=True)
         self.debug("FDR header written")
 
     def csv_data_line(self) -> str:
@@ -1754,8 +1754,8 @@ class PythonInterface:
         # ?? sim/cockpit2/radios/actuators/tac2_channel
         try:
             # do not always search for several types to find more nav aids around
-            lat = self.fdr_data.get("latitude").value
-            lon = self.fdr_data.get("longitude").value
+            lat = self.fdr_mand.get("latitude").value
+            lon = self.fdr_mand.get("longitude").value
             types = NAVAID_CYCLE[self.navaid_counter % len(NAVAID_CYCLE)]
             self.navaid_counter += 1
             navaid = xp.findNavAid(lat=lat, lon=lon, navType=types)
