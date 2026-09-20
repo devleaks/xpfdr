@@ -171,6 +171,8 @@ var map; // leaflet map
 var mapCursor = undefined; // map cursor
 var otherCharts = {}; // for cursor positioning
 var chartCandidates = Array(); // additional charts to plot from properties
+var zoomIndex = [0, 0];
+var panOK = true;
 
 const HEADER_KEYWORDS = [
   "ACFT",
@@ -533,6 +535,91 @@ function point_props(props) {
     return s
 }
 
+// See here: https://github.com/chartjs/chartjs-plugin-zoom/issues/238
+function syncCharts(chart) {
+    const sourceChart = chart.chart;
+
+    if (typeof sourceChart.initial === 'undefined') {
+        sourceChart.initial = sourceChart.getInitialScaleBounds();
+    }
+
+    const sourceInitialBounds = sourceChart.initial;
+
+    const sourceXrange = Math.abs(sourceInitialBounds.x.max) + Math.abs(sourceInitialBounds.x.min);
+    const sourceXscaleMin = (sourceChart.scales.x.min - sourceInitialBounds.x.min) / sourceXrange;
+    const sourceXscaleMax = (sourceChart.scales.x.max - sourceInitialBounds.x.max) / sourceXrange;
+
+    const sourceYrange = Math.abs(sourceInitialBounds.y.max) + Math.abs(sourceInitialBounds.y.min);
+    const sourceYscaleMin = (sourceChart.scales.y.min - sourceInitialBounds.y.min) / sourceYrange;
+    const sourceYscaleMax = (sourceChart.scales.y.max - sourceInitialBounds.y.max) / sourceYrange;
+
+    Object.values(Chart.instances).forEach(targetChart => {
+        if (targetChart !== chart.chart) {
+            if (typeof targetChart.initial === 'undefined') {
+                targetChart.initial = targetChart.getInitialScaleBounds();
+            }
+
+            const targetInitialBounds = targetChart.initial;
+
+            const targetXrange = Math.abs(targetInitialBounds.x.max) + Math.abs(targetInitialBounds.x.min);
+            targetChart.options.scales.x.min = targetInitialBounds.x.min + targetXrange * sourceXscaleMin;
+            targetChart.options.scales.x.max = targetInitialBounds.x.max + targetXrange * sourceXscaleMax;
+
+            const targetYrange = Math.abs(targetInitialBounds.y.max) + Math.abs(targetInitialBounds.y.min);
+            targetChart.options.scales.y.min = targetInitialBounds.y.min + targetYrange * sourceYscaleMin;
+            targetChart.options.scales.y.max = targetInitialBounds.y.max + targetYrange * sourceYscaleMax;
+
+            targetChart.update();
+        }
+    });
+    console.log("sync charts",
+                indexForValue(tlabels, sourceChart.scales.x.min), indexForValue(tlabels, sourceChart.scales.x.max));
+    setZoomIndex(indexForValue(tlabels, sourceChart.scales.x.min), indexForValue(tlabels, sourceChart.scales.x.max));
+    panOK = false;
+}
+
+function zoomMap() {
+    map.fitBounds(latlngs.slice(zoomIndex[0], zoomIndex[1]));    
+}
+
+function setZoomIndex(lo, hi) {
+    if (lo < 0 || lo > latlngs.length || hi < 0 || hi > latlngs.length) {
+        console.warn("out of range", lo, hi)
+        return;
+    }
+    zoomIndex = [lo, hi];
+    zoomMap();
+}
+
+function resetZoomIndex() {
+    setZoomIndex(0, latlngs.length);
+    speedAltChart.resetZoom();
+    Object.values(otherCharts).forEach( (c) => {
+        c.resetZoom()
+    });
+    panOK = true;
+}
+
+function mapFindHiLo() {
+    const bbox = map.getBounds();
+    let i = 0;
+    while (i < latlngs.length && ! bbox.contains(latlngs[i])) {
+        i++;
+    }
+    let lo = i;
+    i = latlngs.length - 1;
+    while (i >= 0 && ! bbox.contains(latlngs[i])) {
+        i--;
+    }
+    if (lo > i) {
+        const t = lo;
+        lo = i;
+        i = t;
+    }
+    console.log("range shown", lo, i);
+    return [lo, i];
+}
+
 function buildMap(text, filetype) {
     document.body.style["background-image"] = "none";
     let geojson;
@@ -547,6 +634,7 @@ function buildMap(text, filetype) {
     // flight path
     pointFeatures = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("_raw_ts") > -1)
     latlngs = pointFeatures.map((f) => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
+    zoomIndex = [0, latlngs.length];
     let points = pointFeatures.map( (f) => {
         m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
             icon: TRANSPARENT_ICON
@@ -592,6 +680,7 @@ function buildMap(text, filetype) {
         maxZoom: 18,
         attribution: "&copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>"
     }).addTo(map);
+
     // display whole flight as linestring
     L.polyline(latlngs, {
         color: "darkblue",
@@ -604,6 +693,9 @@ function buildMap(text, filetype) {
 
     // add interaction "invisible" points
     points.forEach((m) => { m.addTo(map); })
+
+    map.on("zoomend", mapFindHiLo);
+    map.on("moveend", mapFindHiLo)
 
     // add nav aids
     navaids.forEach((m) => { m.addTo(map); })
@@ -684,7 +776,6 @@ function optimizeChartLayout(numdata) {
     }
 }
 
-
 function propertyValues(label) {
     if (pointFeatures[0].properties[label] == undefined) {
         return [];
@@ -747,6 +838,7 @@ function buildSpeedAltChart() {
     const zoomOptions = {
       zoom: {
         mode: "x",
+        onZoomComplete: syncCharts,
         drag: {
           enabled: true,
           borderColor: "rgb(" + AIRCRAFT_COLOR + ")", // "rgb(54, 162, 235)"
@@ -757,6 +849,7 @@ function buildSpeedAltChart() {
       pan: {
         enabled: true,
         mode: "x",
+        onPanComplete: syncCharts,
         modifierKey: "shift",
       }
     };
@@ -875,22 +968,12 @@ function buildSpeedAltChart() {
     const container = document.getElementById("buttons");
     let button = document.createElement("button");
     button.type ="button";
-    button.innerHTML = "Reset zoom";
-    button.id = "zoom";
+    button.innerHTML = "Reset view";
     button.addEventListener("click", function() {
-        speedAltChart.resetZoom();
+        resetZoomIndex();
     });
     container.appendChild(button);
-
-    container.innerHTML += "&nbsp;"
-    button = document.createElement("button");
-    button.type ="button";
-    button.innerHTML = "Whole flight";
-    button.id = "zoom";
-    button.addEventListener("click", function() {
-        map.fitBounds(latlngs);
-    });
-    container.appendChild(button);
+    // container.innerHTML += "&nbsp;"
 }
 
 function buildOtherCharts() {
@@ -1070,7 +1153,7 @@ function tracking(src, dst) {
 }
 
 function cursorOnEdge(latlon) {
-    return true;
+    return panOK;
 }
 
 function moveMapCursor(idx) {
@@ -1078,7 +1161,9 @@ function moveMapCursor(idx) {
         console.warn("moveMapCursor", idx);
         return;
     }
-    let rot = tracking(latlngs[idx], latlngs[idx+1]) + AIRCRAFT_ICON_ROTATION;
+    let rot = idx == (latlngs - 1) ?
+        tracking(latlngs[idx - 1], latlngs[idx]) + AIRCRAFT_ICON_ROTATION :
+        tracking(latlngs[idx], latlngs[idx+1]) + AIRCRAFT_ICON_ROTATION;
     mapCursor.setLatLng(latlngs[idx]);
     mapCursor._icon.style.transformOrigin = Math.round(AIRCRAFT_ICON_SIZE/2) + "px " +
                                             Math.round(AIRCRAFT_ICON_SIZE/2) + "px";
