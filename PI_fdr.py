@@ -404,6 +404,10 @@ class FDRData:
             print(f"{NAME} {VERSION}::FDRData.value: {self.name} {self.dataref} no dref")
             try:  # try to re-init it
                 self.init()
+                if self.dref is not None:
+                    print(f"{NAME} {VERSION}::FDRData.value: {self.name} {self.dataref} inited with delay")
+                else:
+                    return None
             except Exception as e:
                 print(f"{NAME} {VERSION}::FDRData.value: init {self.name} {self.dataref} exception: {e}")
             return None
