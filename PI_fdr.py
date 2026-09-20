@@ -62,6 +62,7 @@ CHANGELOG
 1.5.1 15-SEP-2026 Display command execution on map
 1.5.2 15-SEP-2026 Added ground speed and altitude AGL to defaults
 1.5.3 15-SEP-2026 Maintenance release, code cleanup
+1.6.0 20-SEP-2026 First distribuable release with viewer
 
 """
 
@@ -109,7 +110,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 # Script meta
 SHOW_TRACE = False
 NAME = "FDR"
-VERSION = "1.5.3"
+VERSION = "1.6.0"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -1625,7 +1626,7 @@ class PythonInterface:
             c = self.oooi_notes[o]
             self.debug(f"OOOI {o.name} {t}" + (f" ({c})" if c is not None else ""), force=True)
             if t is not None:
-                print(f"COMM, OOOI {o.name} {t}" + (f" ({c})" if c is not None else ""), file=self.file)
+                print(f"COMM, OOOI {o.name} {t.isoformat()}" + (f" ({c})" if c is not None else ""), file=self.file)
 
     def csv_header_line(self):
         print(f"{FDR_ARCH[0]}\r{self.version}\n", file=self.file)  # note A may not be visible on Apple computers because of simple carriage return after it (no new line)

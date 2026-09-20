@@ -43,7 +43,7 @@
         <!-- <canvas id="chart#" class="chart"></canvas> -->
     </div>        
 <script language="javascript">
-const VERSION = "1.5.1"
+const VERSION = "1.6.0"
 /*
 CHANGELOG
 
@@ -52,10 +52,10 @@ CHANGELOG
 1.4.0 17-SEP-2026 Now load CSV file, especially those produced by fdr_writer.
 1.4.1 17-SEP-2026 Code cleanup.
 1.5.0 18-SEP-2026 Refinements, dark mode, better tooltip, etc.
+1.6.0 20-SEP-2026 First distribuable release with viewer
 
 TO DO
- - When zooming, sync all charts
- - When zooming, set 2 carets on min, max on path on map
+  - Add buttons to zoom on take-off or landing. (from OOOI)
 
 */
 // File types for FDR: GeoJSON
@@ -310,6 +310,7 @@ function parseCSVFile(text) {
 }
 
 function parseFDRFile(text) {
+    // \r CR 0x0D (13 decimal), \l LF 0x0A (10 decimal).
     let arch = String.fromCharCode(text.charCodeAt(0))
     if (["A", "I"].indexOf(arch) == -1) {
         console.error("invalid X-Plane FDR file architecture", arch);
@@ -319,11 +320,11 @@ function parseFDRFile(text) {
 
     let cr = text.charCodeAt(1)
     if (cr != 13) {
-        console.warning("end of first line should be \\r (13); got", cr);
+        console.warning("end of first line should be CR (decimal 13); got", cr);
     }
     let nl = text.charCodeAt(2)
     if (nl == 10) { // ok...
-        console.warning("got extra \\l (10)", nl);
+        console.warning("got extra LF (decimal 10)", nl);
         nl = text.charCodeAt(3)
     }
     if (nl != 51 && nl != 52) {  // "3" and "4"
@@ -337,7 +338,7 @@ function parseFDRFile(text) {
     }
     console.log("FDR data format version", fdr_version);
 
-    let lines = text.split(arch == "A" ? "\n" : "\l");
+    let lines = text.split(arch == "A" ? "\n" : "\r");
     console.log("records", lines.length);
 
     let i = 2;
@@ -354,7 +355,7 @@ function parseFDRFile(text) {
             i++;
             continue;
         }
-        let line = lines[i].trim().split(",");
+        let line = lines[i].replace(/(\r\n|\n|\r)/gm, "").trim().split(",");
         if (HEADER_KEYWORDS.indexOf(line[0].trim()) > -1) {
             if (line[0].trim() == "DATE") {
                 let a = line.slice(1).join(",").split("/");
