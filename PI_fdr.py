@@ -1594,6 +1594,7 @@ class PythonInterface:
 
     def write_fdr(self, text):
         try:
+            text = ''.join(c for c in text if c.isprintable())
             print(text, end="\n" if self.arch == FDR_ARCH else "\r\n", flush=True, file=self.file)
         except Exception as e:
             self.debug(f"write_fdr: exception: {e}", force=True)

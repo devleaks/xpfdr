@@ -4,10 +4,10 @@ Flight Data Recorder is a customizable flight data recording plugin for X-Plane 
 It generates X-Plane FDR files from a running flight.
 
 
-## Recording
+# Operations
 
 The plugin installs a permanent supervisor procedure that determines if the FDR recording needs to occur.
-It automatically starts when a movement is detected, it stops when there is no movement for 10 minutes.
+It automatically starts when aircraft movement is detected, it stops when there is no movement for 10 minutes.
 
 Alternatively, it is possible to manually start and stop the recording through the _Start or stop FDR_ Plugin Menu entry.
 An _enabled_ marker (white dot) sits in front of the menu entry when the recorder is running.
@@ -51,15 +51,19 @@ Information is written as a comment before the data records.
 
 ## Recording Preferences
 
+On startup, FDR locates and loads preferences stored in a preference file.
+Preferences are configuration values (like the frequency of the collection, etc.)
+and the list of X-Plane datarefs to be monitored.
+
+There can be several preference files in X-Plane, one per aircraft, and a generic global one.
+
 FDR first look for a aircraft specific FDR preference file in the home directory of an aircraft
 `<X-Plane 12 Folder>/Aircraft/.../myaircraft/fdr.prf`.
 This allows for recording *aircraft-specific* data.
-This is very convenient as values recorded for a smaller GA or a larger airliner
-differ slightly.
+This is very convenient as values recorded for a smaller GA or a larger airliner may differ.
+(When the aircraft is changed, its preferences are unloaded and the preferences of the new aircraft are loaded.)
 
-Preferences are looked up again when the aircraft is changed.
-
-IF no aircraft specific preference file is found, FDR look in X-Plane Preference folder
+If no aircraft specific preference file is found, FDR look in X-Plane Preference folder
 `<X-Plane 12 Folder>/Output/preferences/fdr.prf`.
 This preference file should only contain generic data, not specific to particular aircraft.
 
@@ -88,6 +92,7 @@ fdr_data:
 ```
 
  - `fdr_arch` identifies the FDR file architecture, either APPLE or IBM. Used to determine line termitors.
+    (CR for APPLE, CR+LF for IBM).
 
  - `description` is an information field used in the log file to identify the preferences used.
 
@@ -99,22 +104,23 @@ fdr_data:
 
  - `chocks` is a dataref name that will be used to check whether chocks are set (non zero value) or not (zero value).
 
- - `fdr_info` is a list of data structure to identy a dataref value that is fetched only *once*
+ - `fdr_info` is a list of _Data Definition_ to identy a dataref value that is fetched only *once*
    at the start of the recording.
    The value is saved as a comment in the header file of the recording.
    Example of FDR info fields may include departure and arrival airport, weather information...
    as long as the data is available as a dataref.
 
- - `fdr_data` is a list of data structure that are collected and reported.
+ - `fdr_data` is a list of _Data Definition_ that are collected and reported.
 
  - `commands` is a list of commands, expressed as X-Plane path.
     The execution of any of these command in logged.
     (This is an experimental feature.)
 
 
-### Collected Data Structure
+### Collected _Data Definition_
 
 Collected data is described by the following fields:
+
   - `name`: Name of the data field, used as a column header in the FDR file. Mandatory.
   - `dataref`: Name of dataref, its value is part of the data record. Mandatory.
   - `units`: Information field of dataref value unit. Saved as a comment in the header of the record file.
@@ -135,10 +141,11 @@ Typically, it can be used for unit adjustment expressions like
 
 In the above expression `${x}` is the raw _numeric_ dataref value.
 
-This scheme is a alternate, more sophisticated method than the built-in FDR DREF factor parameter.
+This scheme is a alternate, more sophisticated method than the built-in FDR DREF factor parameter,
+which remains available as the factor attribute in the Data Definition.
 
 
-### Experimental Feature for Array datarefs
+### Experimental Feature for Array Datarefs
 
 It is possible to list dataref with a python `slice()` syntax.
 
@@ -153,13 +160,13 @@ The above slice is equivalent to
 
 ```
   - name: eng_n1[0]
-    dataref: sim/flightmodel/engine/ENGN_N1_[0]
+    dataref: sim/flightmodel/engine/engn_n1_[0]
   - name: eng_n1[1]
-    dataref: sim/flightmodel/engine/ENGN_N1_[1]
+    dataref: sim/flightmodel/engine/engn_n1_[1]
   - name: eng_n1[2]
-    dataref: sim/flightmodel/engine/ENGN_N1_[2]
+    dataref: sim/flightmodel/engine/engn_n1_[2]
   - name: eng_n1[3]
-    dataref: sim/flightmodel/engine/ENGN_N1_[3]
+    dataref: sim/flightmodel/engine/engn_n1_[3]
 ```
 
 Alternatively, it is possible to list indices of interest like so:
@@ -169,8 +176,16 @@ Alternatively, it is possible to list indices of interest like so:
     dataref: sim/flightmodel/engine/ENGN_N1_[1,3]
 ```
 
-Index list must be a comma separated list of integer value.
+which is equivalent to
 
+```
+  - name: eng_n1[1]
+    dataref: sim/flightmodel/engine/engn_n1_[1]
+  - name: eng_n1[3]
+    dataref: sim/flightmodel/engine/engn_n1_[3]
+```
+
+Index list must be a comma separated list of integer value.
 
 The drawback of these slices or multi-index selection
 is that all values of the dataref array are fetched
@@ -200,17 +215,18 @@ When the plugin is installed, this occurs automatically without user interaction
 FDR collects the following data which is required in the header of the FDR file:
 
   - `ACFT`: the aircraft file to use, with full directory path from the X-Plane folder
-    (ex: `Aircraft/Heavy Metal/Boeing 747.acf`).
-  - `TAIL`: tail number of the aircraft (ex: `N8141Q`). Must come immediately after the `ACFT` line.
-  - `TIME`: ZULU time of the beginning of the flight (ex: `18:54:32`) (time is optional in FDR v4).
+    (ex: `Aircraft/Airbus/ToLiss A321.acf`).
+  - `TAIL`: tail number of the aircraft (ex: `C-GTLU`). Must come immediately after the `ACFT` line.
+  - `TIME`: ZULU time of the begining of the flight (ex: `18:54:32`) (TIME is optional in FDR v4).
   - `DATE`: date of the flight (ex: `03/18/26`, month/day/year format).
   - `PRES`: sea-level pressure during the flight in inches Hg (ex: `29.92`).
   - `TEMP`: sea-level temperatre during the flight in degrees Farenheit (ex: `65`).
-  - `WIND`: wind during th flight in degrees then knots (ex: `230,17`).
+  - `WIND`: wind during th flight in degrees, then knots (ex: `230,17`: 270°, 17kt).
+
 
 FDR collects the following data which is the minimum required in the FDR file:
 
-  - UTC time of day (with fractional second if available)
+  - UTC time of day (with fractional second if available: `18:54:32.678324`)
   - longitude
   - latitude
   - altitude (MSL, WSG84 ellipsoid, in feet)
@@ -227,11 +243,15 @@ In addition to these mandatory values, FDR always records the following two conv
 
 Both are collected to display conventional flight report with the viewer.
 
-Additionl `fdr_data` is saved after these mandatory values as additional columns,
+In a record, all values are decimal floating point values, separated by a `,`
+with the exception of time which is formatted as shown above and always is
+the first value of the record.
+
+Additional `fdr_data` is saved after these mandatory values as additional columns,
 one column per additional data.
 
 
-## Installation
+# Installation
 
 Flight Data Recorder is a X-Plane plugin written in python.
 It needs [XPPython3](https://xppython3.readthedocs.io/en/latest/) X-Plane plugin to run.
