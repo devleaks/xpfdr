@@ -39,15 +39,10 @@ PRES, 30.01
 DISA, 0
 WIND, 270,15
 
-COMM time, lat, lon, alt...
-DATA, 1, 2, 3, 4
-
-or (v4)
-
-COMM time, lat, lon, alt...
+COMM utc time, lat, lon, alt...
 12:34:56.789, 2, 3, 4
 
-*By convention*, *penutiem* comment before data contains the header column name (FDRData.name)
+*By convention*, *penultimate* comment before data contains the header column name (FDRData.name)
 (Last comment before contains start of log information.)
 
 CHANGELOG
@@ -63,6 +58,7 @@ CHANGELOG
 1.5.2 15-SEP-2026 Added ground speed and altitude AGL to defaults
 1.5.3 15-SEP-2026 Maintenance release, code cleanup
 1.6.0 20-SEP-2026 First distribuable release with viewer
+1.6.1 21-SEP-2026 Drop support to generate older file, generate A or I
 
 """
 
@@ -132,6 +128,7 @@ AUTOSTART = True
 AUTOSTART_FREQUENCY = 10.0  # secs
 AUTOSTART_THRESHOLD = 2.0  # m/s
 AUTOSTOP_THRESHOLD = 600.0  # seconds
+AIRBUSPHASE = False
 
 # Thresholds
 MIN_SPEED = 1.0  # m/s, below that speed is stopped
@@ -390,13 +387,10 @@ class FDRData:
     def applyCallback(self, value: float | int) -> float | int:
         v = value
         if value is not None and self.callback is not None:  # if array, should use callback on each value?
-            if USE_CALLBACK:
-                v = self.callback(value)
-            else:
-                expr = self.callback.replace(DREF_SUB, str(value))
-                rpc = RPC(expr)
-                v = rpc.calculate()
-                # print(f"{NAME} {VERSION}::FDRData.value: RPC {self.name}: {self.callback} => {expr} => {v}")
+            expr = self.callback.replace(DREF_SUB, str(value))
+            rpc = RPC(expr)
+            v = rpc.calculate()
+            # print(f"{NAME} {VERSION}::FDRData.value: RPC {self.name}: {self.callback} => {expr} => {v}")
         return v
 
     @property
@@ -923,14 +917,13 @@ class PythonInterface:
         self.err_lst = None
 
         # Can be changed in preferences
+        self.last_acf = ""
+        self.arch = FDR_ARCH
+        self.frequency = WRITE_FREQUENCY
+        self.report_frequency = REPORT_FREQUENCY
         self.fdr_info = {}
         self.fdr_data = {}
         self.navaid_freqs_optional:List[FDRData] = []
-        self.last_acf = ""
-        self.frequency = WRITE_FREQUENCY
-        self.report_frequency = REPORT_FREQUENCY
-        self.arch = FDR_ARCH
-        self.version = FDR_VERSION
 
     @property
     def fdr_all_data_values(self) -> List[FDRData]:
@@ -1292,14 +1285,18 @@ class PythonInterface:
             self.close_fdr_file()
             if AUTOSTART:
                 self.stop_supervisor()
-        self.debug("XPluginDisable: ..disabled")
+            self.debug("XPluginDisable: ..disabled")
+        else:
+            self.debug("XPluginDisable: ..was not enabled")
         self._enabled = False
 
     def requiresReload(self, inMessage) -> bool:
-        return inMessage in [xp.MSG_AIRPORT_LOADED, xp.MSG_SCENERY_LOADED]  # xp.MSG_DATAREFS_ADDED
+        MOI = [xp.MSG_AIRPORT_LOADED, xp.MSG_SCENERY_LOADED]
+        return inMessage in MOI  # xp.MSG_DATAREFS_ADDED
 
     def XPluginReceiveMessage(self, inFromWho, inMessage, inParam):
-        self.debug(f"XPluginReceiveMessage: received {inMessage} {[xp.MSG_AIRPORT_LOADED, xp.MSG_SCENERY_LOADED]}", force=True)
+        MOI = [xp.MSG_AIRPORT_LOADED, xp.MSG_SCENERY_LOADED]
+        self.debug(f"XPluginReceiveMessage: received {inMessage} {MOI}", force=True)
         if self.requiresReload(inMessage):
             if self.load_acf_preferences():
                 self.debug("XPluginReceiveMessage: preference reloaded", force=True)
@@ -1322,6 +1319,7 @@ class PythonInterface:
         self.debug("XPluginReceiveMessage: PLANE_LOADED", force=True)
         acfpath = self.header.get("ACFT").value
         if acfpath is not None and acfpath == self.last_acf:
+            self.debug("XPluginReceiveMessage: aircraft preference file already loaded")
             return
         if self.load_acf_preferences():
             self.debug("XPluginReceiveMessage: PLANE_LOADED, preference loaded", force=True)
@@ -1337,7 +1335,7 @@ class PythonInterface:
         if self.file is None:  # toggle ON
             outfile = self.open_fdr_file()
             self.start_recording()
-            self.debug(f"fdrCmd: FDR started manually, saving FDR{self.version} into {outfile}", force=True)
+            self.debug(f"fdrCmd: FDR started manually, saving FDR into {outfile}", force=True)
         else:  # toggle OFF
             self.stop_recording()
             self.close_fdr_file()
@@ -1363,20 +1361,27 @@ class PythonInterface:
                     self.debug(f"delayed_init: failed to init custom chocks dataref {custom_chocks}, using default chocks dataref", force=True)
 
     def install_preferences(self, newprefs: dict) -> bool:
-        global AUTOSTOP_THRESHOLD
+        global AUTOSTOP_THRESHOLD, AUTOSTART, AIRBUSPHASE
+
         self.trace = newprefs.get("trace", self.trace)
+
         desc = newprefs.get("description")
         if desc is not None:
             self.debug(f"install_preferences: installing {desc}..", force=True)
-        self.frequency = abs(newprefs.get("frequency", WRITE_FREQUENCY))  # no per frame request
-        self.report_frequency = max(newprefs.get("report_frequency", REPORT_FREQUENCY), REPORT_FREQUENCY)  # set to 0 to ignore
-        self.version = newprefs.get("fdr_version", FDR_VERSION)
-        if self.version not in [3, 4]:
-            self.version = FDR_VERSION
+
         self.arch = newprefs.get("fdr_arch", FDR_ARCH)
         if self.arch not in [FDR_ARCH, "IBM"]:
             self.arch = FDR_ARCH
+
+        AIRBUSPHASE = newprefs.get("airbus", False)
+        AUTOSTART = newprefs.get("autostart", True)
+        if not AUTOSTART and self.supervisor_running:
+            self.stop_supervisor()
         AUTOSTOP_THRESHOLD = newprefs.get("stop_timeout", 600)
+
+        self.frequency = abs(newprefs.get("frequency", WRITE_FREQUENCY))  # no per frame request
+        self.report_frequency = max(newprefs.get("report_frequency", REPORT_FREQUENCY), REPORT_FREQUENCY)  # set to 0 to ignore
+
         custom_chocks = newprefs.get("chocks")
         if custom_chocks is not None:
             if self.custom_chocks is None or custom_chocks != self.custom_chocks.dataref:
@@ -1443,13 +1448,18 @@ class PythonInterface:
         icao = self.header.get("ICAO").value
         author = self.header.get("AUTH").value
         self.debug(f"install_preferences: {icao} by {author}", force=True)
-        if icao in ["A321", "A21N"] and author in ["Gliding Kiwi", "GlidingKiwi", "ToLiss"]:
+        if author is not None:
+            author = author.trim().replace(" ", "").lower()
+        if AIRBUSPHASE and icao in ["A321", "A21N"] and author in ["glidingkiwi", "toliss"]:
             all_datarefs_by_name = self.header | self.fdr_info | self.fdr_mand | self.fdr_data
             self._afp = AirbusFlightPhase(
                 dt=self.simulator_zulu_datetime, datarefs=all_datarefs_by_name, alt_reg=self.vertical_lr, spd_reg=self.speed_lr, airtime=self.had_air_time
             )
             if self._afp.valid:
                 self.debug("install_preferences: AirbusFlightPhase enabled", force=True)
+            else:
+                self.debug("install_preferences: AirbusFlightPhase invalid, disabled", force=True)
+                self._afp = None
         #
         # ################################################
         return True
@@ -1457,7 +1467,7 @@ class PythonInterface:
     def load_acf_preferences(self) -> bool:
         try:
             acfpath = self.header.get("ACFT").value
-            if acfpath is not None and acfpath == self.last_acf:
+            if acfpath is not None and acfpath == self.last_acf:  # DO NOT CHECK IF FILE HAS CHANGED!
                 self.debug("load_acf_preferences: aircraft preference file already loaded")
                 return True
             if acfpath is not None:
@@ -1480,13 +1490,9 @@ class PythonInterface:
                         self.install_preferences(prefs)
                         self.last_acf = acfpath
                         if was_started:  # open new one
-                            outfile = os.path.join(xp.getSystemPath(), "Output", "fdr")
-                            if not os.path.isdir(outfile):
-                                os.makedirs(outfile)
                             outfile = self.open_fdr_file()
                             self.start_recording()
-                            self.debug(f"load_acf_preferences: FDR started with new preferences, saving FDR{self.version} into {outfile}", force=True)
-
+                            self.debug(f"load_acf_preferences: FDR started with new preferences, saving FDR into {outfile}", force=True)
                     self.debug("load_acf_preferences: aircraft preference file loaded")
                     return True
                 else:
@@ -1548,7 +1554,7 @@ class PythonInterface:
                     self.debug("supervisor: move detected, starting FDR..", force=True)
                     outfile = self.open_fdr_file()
                     self.start_recording()
-                    self.debug(f"supervisor: ..started, saving FDR{self.version} into {outfile}", force=True)
+                    self.debug(f"supervisor: ..started, saving FDR into {outfile}", force=True)
             else:  # stop after a 10 minute continuous stopped time out?
                 tdiff = self.how_long_stopped()
                 if tdiff > AUTOSTOP_THRESHOLD and self.recorder_running:
@@ -1586,9 +1592,15 @@ class PythonInterface:
         self.file = open(outfile, "w")
         return outfile
 
+    def write_fdr(self, text):
+        try:
+            print(text, end="\n" if self.arch == FDR_ARCH else "\r\n", flush=True, file=self.file)
+        except Exception as e:
+            self.debug(f"write_fdr: exception: {e}", force=True)
+
     def close_fdr_file(self):
         if self.file is not None:
-            self.end_situation()
+            self.save_oooi()
             self.file.close()
             self.file = None
             self.debug("close_fdr_file: file closed", force=True)
@@ -1597,28 +1609,28 @@ class PythonInterface:
         if self.file is None:
             return
         self.estimated_state = self.flight_status
-        print(f"\nCOMM, INFO Flight state {self.estimated_state.name}", file=self.file)
+        self.write_fdr(f"\nCOMM, INFO Flight state {self.estimated_state.name}")
         lat = self.fdr_mand.get("latitude").value
         lon = self.fdr_mand.get("longitude").value
         alt = self.fdr_mand.get("agl").value
         hdg = self.fdr_mand.get("heading").value
         spd = self.fdr_mand.get("gs").value
-        print(f"COMM, INFO lat={lat}, lon={lon}, alt={alt}, hdg={hdg}, speed={spd}", file=self.file)
-        print(f"COMM, INFO supervisor={AUTOSTART_FREQUENCY} recorder={self.frequency}", file=self.file)
-        print(f"COMM, INFO custom_chocks={self.custom_chocks.dataref if self.custom_chocks is not None else 'none'}", file=self.file)
+        self.write_fdr(f"COMM, INFO lat={lat}, lon={lon}, alt={alt}, hdg={hdg}, speed={spd}")
+        self.write_fdr(f"COMM, INFO supervisor={AUTOSTART_FREQUENCY} recorder={self.frequency}")
+        self.write_fdr(f"COMM, INFO custom_chocks={self.custom_chocks.dataref if self.custom_chocks is not None else 'none'}")
 
         # FDR Info
         if len(self.fdr_info) > 0:
             for d in self.fdr_info:
                 if d.dref is None:
                     self.debug(f"start_situation: dataref {d} not found", force=True)
-                    print(f"COMM, INFO dataref {d} not found", file=self.file)
+                    self.write_fdr(f"COMM, INFO dataref {d} not found")
                     continue
-                print(f"COMM, INFO {d.name}: {d.dataref}={d.value}", file=self.file)
+                self.write_fdr(f"COMM, INFO {d.name}: {d.dataref}={d.value}")
 
-    def end_situation(self):
-        if all([t is None for t in self.oooi.values()]):
-            print("COMM, OOOI ----", file=self.file)
+    def save_oooi(self):
+        if all(self.oooi.values()):
+            self.write_fdr("COMM, OOOI ----")
             self.debug("OOOI ----")
             return
         for o in OOOI:
@@ -1626,39 +1638,39 @@ class PythonInterface:
             c = self.oooi_notes[o]
             self.debug(f"OOOI {o.name} {t}" + (f" ({c})" if c is not None else ""), force=True)
             if t is not None:
-                print(f"COMM, OOOI {o.name} {t.isoformat()}" + (f" ({c})" if c is not None else ""), file=self.file)
+                self.write_fdr(f"COMM, OOOI {o.name} {t.isoformat()}" + (f" ({c})" if c is not None else ""))
 
     def csv_header_line(self):
-        print(f"{FDR_ARCH[0]}\r{self.version}\n", file=self.file)  # note A may not be visible on Apple computers because of simple carriage return after it (no new line)
+        self.write_fdr(f"{FDR_ARCH[0]}\r4\n")  # note A may not be visible on Apple computers because of simple carriage return after it (no new line)
 
         # Script info, use local time
-        print(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n", file=self.file)
+        self.write_fdr(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
 
         # FDR Meta data
-        print(f"ACFT, {self.header.get('ACFT').value}", file=self.file)
-        print(f"TAIL, {self.header.get('TAIL').value}", file=self.file)
-        print(f"DATE, {self.simulator_zulu_datetime.strftime("%m/%d/%Y")}", file=self.file)  # MM/DD/YYYY
-        print(f"PRES, {round(self.header.get('SEAL').value, 2)}", file=self.file)
-        print(f"DISA, {round(self.header.get('DISA').value, 2)}", file=self.file)
-        print(f"WIND, {int(self.header.get('WDIR').value)}," + f" {round(self.header.get('WSPD').value, 2)}", file=self.file)
+        self.write_fdr(f"ACFT, {self.header.get('ACFT').value}")
+        self.write_fdr(f"TAIL, {self.header.get('TAIL').value}")
+        self.write_fdr(f"DATE, {self.simulator_zulu_datetime.strftime("%m/%d/%Y")}")  # MM/DD/YYYY
+        self.write_fdr(f"PRES, {round(self.header.get('SEAL').value, 2)}")
+        self.write_fdr(f"DISA, {round(self.header.get('DISA').value, 2)}")
+        self.write_fdr(f"WIND, {int(self.header.get('WDIR').value)}," + f" {round(self.header.get('WSPD').value, 2)}")
 
         # FDR Datarefs
         if len(self.fdr_data) > 0:
-            print("\n", file=self.file)
+            self.write_fdr("\n")
             for d in self.fdr_data.values():
                 if d.dref is None:
                     self.debug(f"dataref {d} not found, not monitored", force=True)
-                    print(f"COMM, dataref {d} not found, not monitored", file=self.file)
+                    self.write_fdr(f"COMM, dataref {d} not found, not monitored")
                     continue
                 f = d.factor
                 if d.callback is not None:
                     f = d.callback(f)  # ok if we assume simple multiplication factor
-                print(f"DREF, {d.dataref}  {d.factor}", file=self.file)
+                self.write_fdr(f"DREF, {d.dataref}  {d.factor}")
 
         # FDRReader meta
-        print("\n", file=self.file)
+        self.write_fdr("\n")
         for d in self.fdr_all_data_values:
-            print(f"COMM, {d.fun()}", file=self.file)
+            self.write_fdr(f"COMM, {d.fun()}")
 
         # Additional comments
         self.start_situation()
@@ -1674,18 +1686,14 @@ class PythonInterface:
                 for i in d.indices:
                     columns.append(f"{d.name}[{i}]")
         columns = ", ".join(columns)
-        print("\nCOMM, UTC time, " + columns + "\n", file=self.file, flush=True)
+        self.write_fdr("\nCOMM, UTC time, " + columns + "\n")
         self.debug("FDR header written")
 
     def csv_data_line(self) -> str:
         def expand(l: list) -> list:
             return reduce(lambda r, e: r + ([str(i) for i in e] if isinstance(e, (list, tuple)) else [str(e)]), l, [])
 
-        data = ""
-        if self.version == 3:
-            data = f"DATA, {round((self.simulator_zulu_datetime - self.start_time).total_seconds(), 1)}"
-        elif self.version == 4:
-            data = self.simulator_zulu_datetime.strftime("%H:%M:%S.%f")
+        data = self.simulator_zulu_datetime.strftime("%H:%M:%S.%f")
         data = data + "," + ",".join(expand([d.value for d in self.fdr_all_data_values if "zulu" not in d.dataref]))
         return data + "\n"
 
@@ -1720,7 +1728,7 @@ class PythonInterface:
                 xp.scheduleFlightLoop(self.recorderFL, self.frequency, 1)
                 xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 2)
                 st = self.simulator_zulu_datetime.isoformat()
-                print(f"COMM, start recording on {self.system_now_datetime.isoformat()} (sim time={st})\n", file=self.file)
+                self.write_fdr(f"COMM, start recording on {self.system_now_datetime.isoformat()} (sim time={st})\n")
                 self.debug(f"start_recording: started at {self.start_time.isoformat()}")
         else:
             self.debug("start_recording: no file, not started")
@@ -1732,12 +1740,12 @@ class PythonInterface:
             xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 1)
             self.recorderFL = None
             if self.file is not None:
-                self.save_navaids()
                 self.save_command_execution()
+                self.save_navaids()
                 if self._afp is not None:
                     self._afp.save(file=self.file)
-                print(f"\n\nCOMM, end recording on {self.system_now_datetime.isoformat()} ({self.writes} writes)", file=self.file)
-                print(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n", file=self.file)
+                self.write_fdr(f"\n\nCOMM, end recording on {self.system_now_datetime.isoformat()} ({self.writes} writes)")
+                self.write_fdr(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
             self.debug(f"stop_recording: stopped at {self.start_time.isoformat()}")
 
     #
@@ -1749,7 +1757,7 @@ class PythonInterface:
         # On file close, Writes encountered navaids to FDR as comments
         for n in self.navaids.values():
             n.navType = n.navType.name
-            print(f"COMM, {n}", file=self.file)
+            self.write_fdr(f"COMM, {n}")
 
     def collect_navaids(self):
         if not self.recorder_running:
@@ -1780,6 +1788,7 @@ class PythonInterface:
                         reg=d.reg,
                     )
                     self.navaids[k] = c
+                    # self.write_fdr(f"COMM, {c}")
                     self.debug(f"collect_navaids: {c}")
 
             for radio in self.all_navaid_freqs:
@@ -1805,6 +1814,7 @@ class PythonInterface:
                                 reg=d.reg,
                             )
                             self.navaids[k] = c
+                            # self.write_fdr(f"COMM, {c}")
                             self.debug(f"collect_navaids: R {freq} {c}")
         except Exception as e:
             self.debug(f"collect_navaids: error {e}")
@@ -1817,7 +1827,7 @@ class PythonInterface:
     def save_command_execution(self):
         # On file close, Writes encountered navaids to FDR as comments
         for c in self.commandExecs:
-            print(f"COMM, {c}", file=self.file)
+            self.write_fdr(f"COMM, {c}")
 
     def logCommandExecution(self, commandRef, phase, refcon):
         RECORD_PHASE = [2]
@@ -1825,6 +1835,7 @@ class PythonInterface:
             c = Command(name=refcon["command"], before=refcon["before"], phase=phase, index=self.writes, when=self.simulator_zulu_datetime.isoformat())
             self.commandExecs.append(c)
             self.debug(f"logCommandExecution: {c}")
+            # self.write_fdr(f"COMM, {c}")
         return 1
 
     def start_command_logging(self):

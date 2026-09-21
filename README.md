@@ -1,7 +1,7 @@
 # Flight Data Recorder for X-Plane
 
 Flight Data Recorder is a customizable flight data recording plugin for X-Plane flight simulator.
-It generates X-Plane FDR files (version 3 or 4) from a running flight.
+It generates X-Plane FDR files from a running flight.
 
 
 ## Recording
@@ -27,7 +27,7 @@ Files are named after the start time of the record.
 
 ### FDR File Format
 
-FDR slightly diverge from "formal" FDR v3 and v4 format
+FDR files slightly diverge from "formal" FDR v4 format
 by allowing a fractional part to seconds (milliseconds or microseconds)
 for more precision.
 
@@ -41,8 +41,10 @@ Meta Data is used, for example, by the FDR reader.
 
 In the FDR record file, the recorder writes
 
+  - Meta data about the dataref requested (units, sizes, etc.)
   - The list of units for each column in a record if available.
   - A list of columns names for a record
+  - The start and stop date/time of the recording in both simulator UTC time and computer local time.
 
 Information is written as a comment before the data records.
 
@@ -65,7 +67,6 @@ This preference file should only contain generic data, not specific to particula
 The preference file is a Yaml-formatted readable text file structured as follow:
 
 ```yaml
-fdr_version: 4
 fdr_arch: APPLE
 description: Demonstration preference file
 frequency: 5
@@ -86,8 +87,6 @@ fdr_data:
     callback: ${x} 0.00508 *
 ```
 
- - `fdr_version` identifies the version of the recording file that is generated. Version 3 and 4 are supported.
-
  - `fdr_arch` identifies the FDR file architecture, either APPLE or IBM. Used to determine line termitors.
 
  - `description` is an information field used in the log file to identify the preferences used.
@@ -96,11 +95,12 @@ fdr_data:
 
  - `report_frequency` is the number of data collections reported in the log file.
     It allows for simple monitoring of the data collection process.
-    Every 100 records, a message is written into log.txt
+    Above, every 100 records, a message is written into log.txt.
 
  - `chocks` is a dataref name that will be used to check whether chocks are set (non zero value) or not (zero value).
 
- - `fdr_info` is a list of data structure to identy a dataref value that is fetched *once* only at the start of the recording.
+ - `fdr_info` is a list of data structure to identy a dataref value that is fetched only *once*
+   at the start of the recording.
    The value is saved as a comment in the header file of the recording.
    Example of FDR info fields may include departure and arrival airport, weather information...
    as long as the data is available as a dataref.
@@ -122,12 +122,11 @@ Collected data is described by the following fields:
   - `factor`: Convertion factor (float value) used by FDR DREF parameter. Optional.
   - `callback`: Reverse polish notation expression, in which `${x}` is replaced with the dataref value. Optional.
 
-Callback expression is very limited in size and capabilities.
-It is a Rever Polish Notation expression.
+The callback string is a Reverse polish notation expression.
 Its goal is a provide an easy mechanism to alter raw dataref values to meaningful record value
 with minimal impact.
 
-Typical, unit adjustment expressions like
+Typically, it can be used for unit adjustment expressions like
 
  - `${x} 0.00508 *` : convert feet per minute to meters per second (see example above)
  - `${x} 0.3048 *` : convert ft to m
@@ -190,8 +189,7 @@ The recording frequency is 10 seconds, and reporting frequency occurs every 100 
 (Reporting is written in X-Plane log.txt file and is useful to monitor that FDR is logging
 events in the FDR file.)
 Without preference file, FDR only record mandatory header fields once,
-and mandatory data (time, position, attitude, total 7 values, see below) every 10 seconds.
-
+and mandatory data (time, position, attitude, 2 convenient values, total 9 values, see below) every 10 seconds.
 It is a lightweight process that has no impact on the frame rate.
 
 When the plugin is installed, this occurs automatically without user interaction.
@@ -200,32 +198,36 @@ When the plugin is installed, this occurs automatically without user interaction
 ### Mandatory Data
 
 FDR collects the following data which is required in the header of the FDR file:
+
   - `ACFT`: the aircraft file to use, with full directory path from the X-Plane folder
     (ex: `Aircraft/Heavy Metal/Boeing 747.acf`).
   - `TAIL`: tail number of the aircraft (ex: `N8141Q`). Must come immediately after the `ACFT` line.
-  - `TIME`: ZULU time of the beginning of the flight (ex: `18:54:32`).
+  - `TIME`: ZULU time of the beginning of the flight (ex: `18:54:32`) (time is optional in FDR v4).
   - `DATE`: date of the flight (ex: `03/18/26`, month/day/year format).
   - `PRES`: sea-level pressure during the flight in inches Hg (ex: `29.92`).
   - `TEMP`: sea-level temperatre during the flight in degrees Farenheit (ex: `65`).
   - `WIND`: wind during th flight in degrees then knots (ex: `230,17`).
 
-(Note: FDR Version 3 and Version 4 _required_ fields differ slightly.)
-
 FDR collects the following data which is the minimum required in the FDR file:
+
   - UTC time of day (with fractional second if available)
   - longitude
   - latitude
-  - elevation (MSL, WSG84 ellipsoid, in feet)
+  - altitude (MSL, WSG84 ellipsoid, in feet)
   - heading
   - pitch
   - roll
 
+UTC time is the simulator UTC time when the flight occurs.
+
 In addition to these mandatory values, FDR always records the following two convenient values:
+
   - ground speed
-  - altitude (above ground level, in meters)
+  - elevation (above ground level, in meters)
+
 Both are collected to display conventional flight report with the viewer.
 
-`fdr_data` data is saved after these mandatory values as additional columns,
+Additionl `fdr_data` is saved after these mandatory values as additional columns,
 one column per additional data.
 
 
@@ -244,10 +246,12 @@ When completed, simply reload XPPython3 script again.
 ## Reader
 
 There is a compagnon script `fdr_reader.py` that reads a FDR record file and generates
-  - a GeoJSON file that can be viewed on geojson.io for example,
+  - a GeoJSON file that can be viewed on [geojson.io](geojson.io) for example,
   - a CSV file with all data.
 
 In the GeoJSON file, FDR data is added as a list of feature properties along with (3D) Point position.
+In the CSV file, no meta data is available, just records. (There is no nav aid location, and no command
+trigger report in the CSV file.)
 
 
 ## Viewer
@@ -255,7 +259,7 @@ In the GeoJSON file, FDR data is added as a list of feature properties along wit
 There is a compagnon web page `frd_viewer.html` to display either a GeoJSON formatted FDR file
 or a Version 4 FDR file in a simple, basic map and charting page.
 
-You can drop FDR v3 or v4 files, GeoJSON or CSV files *generated by fdr_reader*.
+You can drop FDR v4 files, GeoJSON or CSV files *generated by fdr_reader*.
 
 *The viewer is under development.*
 
@@ -268,19 +272,21 @@ that allow for better display of information in the viewer.
   - Collected navaids are displayed,
   - Moment of execution of monitored commands are also shown.
 
-If using FDR default values/settings without preference file,
+If using FDR default values/settings recorded without preference file,
 FDR Viewer display a Flightradar24/Flight Aware type of graph with
+
   - A map of the flight,
-  - Ground speed and altitude above ground,
+  - Ground speed and altitude MSL,
   - Mandatory values collected by FDR: Heading, pitch, and roll.
+
+![fdr viewer](https://raw.githubusercontent.com/devleaks/xpfdr/refs/heads/main/fdr_viewer/media/fdr_viewer.png)
 
 If additional values are requested through a preference file,
 all additional values are presented in similar graphs.
 
-![fdr viewer](https://raw.githubusercontent.com/devleaks/xpfdr/refs/heads/main/fdr_viewer/media/fdr_viewer.png)
-
-Map is presented by [Leaflet](https://leafletjs.com). Charts are presented by [ChartJS](https://www.chartjs.org).
-All code by Pierre, a HI. Hence bugs.
+Map is presented thanks to [Leaflet](https://leafletjs.com).
+Charts are presented thanks to [ChartJS](https://www.chartjs.org).
+All code by devleaks, a HI. Hence bugs.
 
 
 ## Troubleshooting

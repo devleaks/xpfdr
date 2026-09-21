@@ -32,6 +32,19 @@
           justify-content: center;
           align-items: center;
         }
+        #footer {
+            bottom: 0px;
+            color: #ddd;
+            font-family: sans-serif;
+            font-size: x-small;
+            margin-bottom: 4px;
+            position: absolute;
+            text-align: center;
+            width: 100%;
+        }
+        #footer a {
+            color: #ddd;
+        }
     </style>
 </head>
 <body>
@@ -41,9 +54,13 @@
         <div id="buttons"></div>
         <!-- additional charts will come here -->
         <!-- <canvas id="chart#" class="chart"></canvas> -->
+    </div>
+    <div id=footer>
+        Map by <a href="https://leafletjs.com">Leaflet</a>,
+        charts by <a href="https://www.chartjs.org">ChartJS</a>,
+        <a href="https://github.com/devleaks/xpfdr">GitHub for this project</a>.
     </div>        
 <script language="javascript">
-const VERSION = "1.6.0"
 /*
 CHANGELOG
 
@@ -58,6 +75,9 @@ TO DO
   - Add buttons to zoom on take-off or landing. (from OOOI)
 
 */
+
+const VERSION = "1.6.0"
+
 // File types for FDR: GeoJSON
 const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", "text/csv", ""]
 // Each point in the geojson file will be represented by this almost transparent icon.
@@ -84,8 +104,8 @@ const AIRCRAFT_ICON = L.icon({
     popupAnchor: [-(AIRCRAFT_ICON_SIZE+2), -(AIRCRAFT_ICON_SIZE+2)] // point from which the popup should open relative to the iconAnchor
 });
 
+// Icons for NAVAID positions
 const NAVAID_ICON_SIZE = 16
-
 function NAVAID_ICON(navType) {
     ICON_NAME = {
         Unknown: "media/userpoint_Closed.svg",
@@ -125,17 +145,31 @@ const SPEED_UNIT = "kt";
 const SPEED_COLOR = [253, 128, 8];
 const SPEED_LABEL = "Ground speed (m/s)"
 
-const ALTITUDE_DATA = "agl";  // name of GeoJSON feature property for altitude
+// Altitude MSL: Shows aircraft behavior
+const ALTITUDE_DATA = "altitude";  // name of GeoJSON feature property for altitude
 const ALTITUDE_CONVERT = {
-    "m": 1,
-    "ft": 1/0.3048,
+    "m": 0.3048,
+    "ft": 1,
     "fl": 0.001
 };
 const ALTITUDE_UNIT = "ft";
 const ALTITUDE_COLOR = [15, 128, 255];
 const SHOW_ALTITUDE = true;  // include altitude in GeoJSON file
-const ALTITUDE_LABEL = "Altitude above ground (m)"
+const ALTITUDE_LABEL = "Altitude MSL (ft)"
 
+// Altitude AGL: Shows ground relief!
+// const ALTITUDE_DATA = "agl";  // name of GeoJSON feature property for altitude
+// const ALTITUDE_CONVERT = {
+//     "m": 1,
+//     "ft": 1/0.3048,
+//     "fl": 0.001
+// };
+// const ALTITUDE_UNIT = "ft";
+// const ALTITUDE_COLOR = [15, 128, 255];
+// const SHOW_ALTITUDE = true;  // include altitude in GeoJSON file
+// const ALTITUDE_LABEL = "Altitude above ground (m)"
+
+// Line that is drawn on graph when aircraft is moved on map
 const CHART_CURSOR_COLOR = "rgba(102, 255, 255, 0.7)";
 
 // list of GeoJSON feature properties to ignore for charting
@@ -548,6 +582,7 @@ function resetZoom() {
         c.resetZoom()
     });
     panOK = true;
+    adjustCharts = false;
 }
 
 // CHART ZOOM MANAGEMENT
