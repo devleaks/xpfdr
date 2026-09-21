@@ -247,6 +247,9 @@ In a record, all values are decimal floating point values, separated by a `,`
 with the exception of time which is formatted as shown above and always is
 the first value of the record.
 
+
+### Optiopnal Additional Data
+
 Additional `fdr_data` is saved after these mandatory values as additional columns,
 one column per additional data.
 
@@ -266,12 +269,15 @@ When completed, simply reload XPPython3 script again.
 ## Reader
 
 There is a compagnon script `fdr_reader.py` that reads a FDR record file and generates
+
   - a GeoJSON file that can be viewed on [geojson.io](geojson.io) for example,
   - a CSV file with all data.
 
 In the GeoJSON file, FDR data is added as a list of feature properties along with (3D) Point position.
-In the CSV file, no meta data is available, just records. (There is no nav aid location, and no command
-trigger report in the CSV file.)
+The GeoJSON file also contain additional Features like the whole flight path as a LineString.
+
+In the CSV file, no meta data is available, just records.
+(There is no nav aid location, and no command trigger report in the CSV file.)
 
 
 ## Viewer
