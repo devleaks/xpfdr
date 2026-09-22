@@ -92,7 +92,7 @@ fdr_data:
 ```
 
  - `fdr_arch` identifies the FDR file architecture, either APPLE or IBM. Used to determine line termitors.
-    (CR for APPLE, CR+LF for IBM).
+    (CR for APPLE, CR+LF for IBM.)
 
  - `description` is an information field used in the log file to identify the preferences used.
 
@@ -241,14 +241,16 @@ In addition to these mandatory values, FDR always records the following two conv
   - ground speed
   - elevation (above ground level, in meters)
 
-Both are collected to display conventional flight report with the viewer.
+Both are used to detect lateral and vertical movements like takeoff and landing.
+They are also used to display conventional flight report in the viewer.
+
 
 In a record, all values are decimal floating point values, separated by a `,`
 with the exception of time which is formatted as shown above and always is
 the first value of the record.
 
 
-### Optiopnal Additional Data
+### Optional Additional Data
 
 Additional `fdr_data` is saved after these mandatory values as additional columns,
 one column per additional data.
@@ -312,6 +314,8 @@ all additional values are presented in similar graphs.
 
 Map is presented thanks to [Leaflet](https://leafletjs.com).
 Charts are presented thanks to [ChartJS](https://www.chartjs.org).
+Navaid icons stolen from [Little Navmap](https://albar965.github.io/littlenavmap.html).
+
 All code by devleaks, a HI. Hence bugs.
 
 
@@ -319,6 +323,8 @@ All code by devleaks, a HI. Hence bugs.
 
 FDR logs a few messages in X-Plane `log.txt` file, especially reports it is working
 and logging events.
+
+Please report issues on GitHub. Always provide `log.txt` and `XPPython3Log.txt` files.
 
 The script will not work on X-Plane release 11 as it depends on newer XPPython3 features.
 

@@ -1,0 +1,14 @@
+descriptiion: Minimal ToLiss Airbus FDR preferences to enable ToLiss features
+frequency: 1
+report_frequency: 300
+airbus: true
+chocks: AirbusFBW/Chocks
+fdr_info:
+  - name: elec_pwr
+    dataref: sim/cockpit2/switches/avionics_power_on
+fdr_data:
+  - name: eng_pwr
+    dataref: AirbusFBW/EngineThrust_N[0:2]
+    # Note: probably be [0:4] on A340 ;-)
+  - name: ecam_flight_phase
+    dataref: AirbusFBW/ECAMFlightPhase

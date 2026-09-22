@@ -116,7 +116,7 @@ FDR_RESET_COMMAND_DESC = "Start or stop a new FDR session"
 FDR_PLUGIN_SIGNATURE = "com.xppython3.fdr"
 
 # Default values
-FDR_PREFERENCE_FILE = "fdr.prf"  # .prf?
+FDR_PREFERENCE_FILE = "fdr.prf"
 FDR_VERSION = 4  # 3 or 4
 FDR_ARCH = "APPLE"  # "APPLE" or "IBM"
 
@@ -129,6 +129,7 @@ AUTOSTART_FREQUENCY = 10.0  # secs
 AUTOSTART_THRESHOLD = 2.0  # m/s
 AUTOSTOP_THRESHOLD = 600.0  # seconds
 AIRBUSPHASE = False
+WRITE_ASAP = True
 
 # Thresholds
 MIN_SPEED = 1.0  # m/s, below that speed is stopped
@@ -1601,7 +1602,6 @@ class PythonInterface:
 
     def close_fdr_file(self):
         if self.file is not None:
-            self.save_oooi()
             self.file.close()
             self.file = None
             self.debug("close_fdr_file: file closed", force=True)
@@ -1642,7 +1642,7 @@ class PythonInterface:
                 self.write_fdr(f"COMM, OOOI {o.name} {t.isoformat()}" + (f" ({c})" if c is not None else ""))
 
     def csv_header_line(self):
-        self.write_fdr(f"{FDR_ARCH[0]}\r4\n")  # note A may not be visible on Apple computers because of simple carriage return after it (no new line)
+        self.write_fdr(f"{FDR_ARCH[0]}\r{FDR_VERSION}\n")  # note A may not be visible on Apple computers because of simple carriage return after it (no new line)
 
         # Script info, use local time
         self.write_fdr(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
@@ -1741,8 +1741,10 @@ class PythonInterface:
             xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 1)
             self.recorderFL = None
             if self.file is not None:
-                self.save_command_execution()
-                self.save_navaids()
+                self.save_oooi()
+                if not WRITE_ASAP:
+                    self.save_command_execution()
+                    self.save_navaids()
                 if self._afp is not None:
                     self._afp.save(file=self.file)
                 self.write_fdr(f"\n\nCOMM, end recording on {self.system_now_datetime.isoformat()} ({self.writes} writes)")
@@ -1789,7 +1791,8 @@ class PythonInterface:
                         reg=d.reg,
                     )
                     self.navaids[k] = c
-                    # self.write_fdr(f"COMM, {c}")
+                    if WRITE_ASAP:
+                        self.write_fdr(f"COMM, {c}")
                     self.debug(f"collect_navaids: {c}")
 
             for radio in self.all_navaid_freqs:
@@ -1815,7 +1818,8 @@ class PythonInterface:
                                 reg=d.reg,
                             )
                             self.navaids[k] = c
-                            # self.write_fdr(f"COMM, {c}")
+                            if WRITE_ASAP:
+                                self.write_fdr(f"COMM, {c}")
                             self.debug(f"collect_navaids: R {freq} {c}")
         except Exception as e:
             self.debug(f"collect_navaids: error {e}")
@@ -1836,7 +1840,8 @@ class PythonInterface:
             c = Command(name=refcon["command"], before=refcon["before"], phase=phase, index=self.writes, when=self.simulator_zulu_datetime.isoformat())
             self.commandExecs.append(c)
             self.debug(f"logCommandExecution: {c}")
-            # self.write_fdr(f"COMM, {c}")
+            if WRITE_ASAP:
+                self.write_fdr(f"COMM, {c}")
         return 1
 
     def start_command_logging(self):

@@ -303,7 +303,7 @@ function parseCSVFile(text) {
         }
         const values = line.split(",");
         if (values.length != columns.length) {
-            console.warning("columns/values: non matching length", i, columns.length, values.length);
+            console.warn("columns/values: non matching length", i, columns.length, values.length);
             continue;
         }
         let coords = [parseFloat(values[lon_idx]), parseFloat(values[lat_idx])]
@@ -354,11 +354,11 @@ function parseFDRFile(text) {
 
     let cr = text.charCodeAt(1)
     if (cr != 13) {
-        console.warning("end of first line should be CR (decimal 13); got", cr);
+        console.warn("end of first line should be CR (decimal 13); got", cr);
     }
     let nl = text.charCodeAt(2)
     if (nl == 10) { // ok...
-        console.warning("got extra LF (decimal 10)", nl);
+        console.warn("got extra LF (decimal 10)", nl);
         nl = text.charCodeAt(3)
     }
     if (nl != 51 && nl != 52) {  // "3" and "4"
@@ -581,7 +581,7 @@ function resetZoom() {
     Object.values(otherCharts).forEach( (c) => {
         c.resetZoom()
     });
-    panOK = true;
+    panOK = false;
     adjustCharts = false;
 }
 
@@ -686,7 +686,8 @@ function mapZoomOnIndex(lo, hi) {
 function mapZoomed() {
     // called when map zoom has changed
     zoomIndex = findMapZoomIndex();
-    adjustCharts = (zoomIndex[1] - zoomIndex[0]) < (latlngs.length - 1)
+    adjustCharts = (zoomIndex[1] - zoomIndex[0]) < (latlngs.length - 1);
+    panOK = ! adjustCharts;
     if (speedAltChart != undefined) {
         syncAllCharts();
     }
