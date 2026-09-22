@@ -73,10 +73,14 @@ from datetime import datetime, timedelta, timezone
 from traceback import print_exc
 from typing import Callable, Any, List
 
+XP_MESSAGE_OF_INTEREST = []
 try:
     import xp
     from XPPython3.utils import xp_pip
     from XPPython3.utils.datarefs import find_dataref
+
+    XP_MESSAGE_OF_INTEREST = [xp.MSG_AIRPORT_LOADED, xp.MSG_SCENERY_LOADED]
+
 except ModuleNotFoundError:
     print("not using X-Plane")
 
@@ -104,7 +108,6 @@ PLUGIN_ROOT_PATH = os.path.dirname(os.path.abspath(__file__))  # .../PythonPlugi
 SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
-SHOW_TRACE = False
 NAME = "FDR"
 VERSION = "1.6.0"
 DESCRIPTION = "Flight Data Recordder"
@@ -120,16 +123,18 @@ FDR_PREFERENCE_FILE = "fdr.prf"
 FDR_VERSION = 4  # 3 or 4
 FDR_ARCH = "APPLE"  # "APPLE" or "IBM"
 
-DREF_SUB = "${x}"
+SHOW_TRACE = True
 WRITE_FREQUENCY = 10.0  # seconds
 REPORT_FREQUENCY = 100  # number of writes before logging
-LINREG_LEN = 10  # number of points in linear regression
 AUTOSTART = True
 AUTOSTART_FREQUENCY = 10.0  # secs
 AUTOSTART_THRESHOLD = 2.0  # m/s
 AUTOSTOP_THRESHOLD = 600.0  # seconds
 AIRBUSPHASE = False
 WRITE_ASAP = True
+
+LINREG_LEN = 10  # number of points in linear regression
+DREF_SUB = "${x}"
 
 # Thresholds
 MIN_SPEED = 1.0  # m/s, below that speed is stopped
@@ -587,7 +592,6 @@ class AirbusFlightPhase:
             AIRBUS_PHASE.SECONDENGSHUTDOWN: self.test_after,
             AIRBUS_PHASE.FIVEMINAFTER: self.test_off,
         }
-        self.trace = True  # SHOW_TRACE
         self._e = -1
         self.datarefs = datarefs
         self.alt_reg = alt_reg
@@ -632,7 +636,7 @@ class AirbusFlightPhase:
 
     def debug(self, message, force: bool = False):
         # ideal message is function_name: message
-        if self.trace or force:
+        if SHOW_TRACE or force:
             print(f"{NAME} {VERSION}::AirbusFlightPhase:{message}")
 
     def flight_phase(self, dt: datetime) -> FlightPhase:
@@ -862,8 +866,6 @@ class AirbusFlightPhase:
 class PythonInterface:
 
     def __init__(self) -> None:
-        self.trace = SHOW_TRACE  # produces extra debugging in XPPython3.log for this class
-
         self.Name = NAME
         self.Sig = PLUGIN_ROOT_PATH.strip("/").replace("/", ".")
         self.Desc = DESCRIPTION + " (Rel. " + VERSION + ")"
@@ -1202,7 +1204,7 @@ class PythonInterface:
 
     def debug(self, message, force: bool = False):
         # ideal message is function_name: message
-        if self.trace or force:
+        if SHOW_TRACE or force:
             print(f"{self.Info}::{message}")
 
     #
@@ -1292,15 +1294,15 @@ class PythonInterface:
         self._enabled = False
 
     def requiresReload(self, inMessage) -> bool:
-        MOI = [xp.MSG_AIRPORT_LOADED, xp.MSG_SCENERY_LOADED]
-        return inMessage in MOI  # xp.MSG_DATAREFS_ADDED
+        return inMessage in XP_MESSAGE_OF_INTEREST  # xp.MSG_DATAREFS_ADDED
 
     def XPluginReceiveMessage(self, inFromWho, inMessage, inParam):
-        MOI = [xp.MSG_AIRPORT_LOADED, xp.MSG_SCENERY_LOADED]
-        self.debug(f"XPluginReceiveMessage: received {inMessage} {MOI}", force=True)
+        self.debug(f"XPluginReceiveMessage: received {inMessage} (interest={self.requiresReload(inMessage)})", force=True)
         if self.requiresReload(inMessage):
             if self.load_acf_preferences():
-                self.debug("XPluginReceiveMessage: preference reloaded", force=True)
+                self.debug(f"XPluginReceiveMessage: received {inMessage}, preference reloaded", force=True)
+            else:
+                self.debug(f"XPluginReceiveMessage: received {inMessage}, preference not reloaded")
 
         # if inMessage != xp.MSG_PLANE_CRASHED:
         #     self.stop_recording()
@@ -1362,9 +1364,9 @@ class PythonInterface:
                     self.debug(f"delayed_init: failed to init custom chocks dataref {custom_chocks}, using default chocks dataref", force=True)
 
     def install_preferences(self, newprefs: dict) -> bool:
-        global AUTOSTOP_THRESHOLD, AUTOSTART, AIRBUSPHASE
+        global AUTOSTOP_THRESHOLD, AUTOSTART, AIRBUSPHASE, SHOW_TRACE
 
-        self.trace = newprefs.get("trace", self.trace)
+        SHOW_TRACE = newprefs.get("trace", SHOW_TRACE)
 
         desc = newprefs.get("description")
         if desc is not None:
@@ -1593,12 +1595,15 @@ class PythonInterface:
         self.file = open(outfile, "w")
         return outfile
 
-    def write_fdr(self, text):
-        try:
-            text = ''.join(c for c in text if c.isprintable())
-            print(text, end="\n" if self.arch == FDR_ARCH else "\r\n", flush=True, file=self.file)
-        except Exception as e:
-            self.debug(f"write_fdr: exception: {e}", force=True)
+    def fdr_write_line(self, text):
+        if self.file is not None:
+            try:
+                text = ''.join(c for c in text if c.isprintable())
+                print(text, end="\n" if self.arch == FDR_ARCH else "\r\n", flush=True, file=self.file)
+            except Exception as e:
+                self.debug(f"write_fdr: exception: {e}", force=True)
+        else:
+            self.debug("write_fdr: no file", force=True)
 
     def close_fdr_file(self):
         if self.file is not None:
@@ -1610,28 +1615,28 @@ class PythonInterface:
         if self.file is None:
             return
         self.estimated_state = self.flight_status
-        self.write_fdr(f"\nCOMM, INFO Flight state {self.estimated_state.name}")
+        self.fdr_write_line(f"\nCOMM, INFO Flight state {self.estimated_state.name}")
         lat = self.fdr_mand.get("latitude").value
         lon = self.fdr_mand.get("longitude").value
         alt = self.fdr_mand.get("agl").value
         hdg = self.fdr_mand.get("heading").value
         spd = self.fdr_mand.get("gs").value
-        self.write_fdr(f"COMM, INFO lat={lat}, lon={lon}, alt={alt}, hdg={hdg}, speed={spd}")
-        self.write_fdr(f"COMM, INFO supervisor={AUTOSTART_FREQUENCY} recorder={self.frequency}")
-        self.write_fdr(f"COMM, INFO custom_chocks={self.custom_chocks.dataref if self.custom_chocks is not None else 'none'}")
+        self.fdr_write_line(f"COMM, INFO lat={lat}, lon={lon}, alt={alt}, hdg={hdg}, speed={spd}")
+        self.fdr_write_line(f"COMM, INFO supervisor={AUTOSTART_FREQUENCY} recorder={self.frequency}")
+        self.fdr_write_line(f"COMM, INFO custom_chocks={self.custom_chocks.dataref if self.custom_chocks is not None else 'none'}")
 
         # FDR Info
         if len(self.fdr_info) > 0:
             for d in self.fdr_info:
                 if d.dref is None:
                     self.debug(f"start_situation: dataref {d} not found", force=True)
-                    self.write_fdr(f"COMM, INFO dataref {d} not found")
+                    self.fdr_write_line(f"COMM, INFO dataref {d} not found")
                     continue
-                self.write_fdr(f"COMM, INFO {d.name}: {d.dataref}={d.value}")
+                self.fdr_write_line(f"COMM, INFO {d.name}: {d.dataref}={d.value}")
 
     def save_oooi(self):
         if all(self.oooi.values()):
-            self.write_fdr("COMM, OOOI ----")
+            self.fdr_write_line("COMM, OOOI ----")
             self.debug("OOOI ----")
             return
         for o in OOOI:
@@ -1639,39 +1644,39 @@ class PythonInterface:
             c = self.oooi_notes[o]
             self.debug(f"OOOI {o.name} {t}" + (f" ({c})" if c is not None else ""), force=True)
             if t is not None:
-                self.write_fdr(f"COMM, OOOI {o.name} {t.isoformat()}" + (f" ({c})" if c is not None else ""))
+                self.fdr_write_line(f"COMM, OOOI {o.name} {t.isoformat()}" + (f" ({c})" if c is not None else ""))
 
-    def csv_header_line(self):
-        self.write_fdr(f"{FDR_ARCH[0]}\r{FDR_VERSION}\n")  # note A may not be visible on Apple computers because of simple carriage return after it (no new line)
+    def fdr_header_lines(self):
+        print(f"{FDR_ARCH[0]}\r{FDR_VERSION}\n", file=self.file)
 
         # Script info, use local time
-        self.write_fdr(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
+        self.fdr_write_line(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
 
         # FDR Meta data
-        self.write_fdr(f"ACFT, {self.header.get('ACFT').value}")
-        self.write_fdr(f"TAIL, {self.header.get('TAIL').value}")
-        self.write_fdr(f"DATE, {self.simulator_zulu_datetime.strftime("%m/%d/%Y")}")  # MM/DD/YYYY
-        self.write_fdr(f"PRES, {round(self.header.get('SEAL').value, 2)}")
-        self.write_fdr(f"DISA, {round(self.header.get('DISA').value, 2)}")
-        self.write_fdr(f"WIND, {int(self.header.get('WDIR').value)}," + f" {round(self.header.get('WSPD').value, 2)}")
+        self.fdr_write_line(f"ACFT, {self.header.get('ACFT').value}")
+        self.fdr_write_line(f"TAIL, {self.header.get('TAIL').value}")
+        self.fdr_write_line(f"DATE, {self.simulator_zulu_datetime.strftime("%m/%d/%Y")}")  # MM/DD/YYYY
+        self.fdr_write_line(f"PRES, {round(self.header.get('SEAL').value, 2)}")
+        self.fdr_write_line(f"DISA, {round(self.header.get('DISA').value, 2)}")
+        self.fdr_write_line(f"WIND, {int(self.header.get('WDIR').value)}," + f" {round(self.header.get('WSPD').value, 2)}")
 
         # FDR Datarefs
         if len(self.fdr_data) > 0:
-            self.write_fdr("\n")
+            self.fdr_write_line("\n")
             for d in self.fdr_data.values():
                 if d.dref is None:
                     self.debug(f"dataref {d} not found, not monitored", force=True)
-                    self.write_fdr(f"COMM, dataref {d} not found, not monitored")
+                    self.fdr_write_line(f"COMM, dataref {d} not found, not monitored")
                     continue
-                f = d.factor
-                if d.callback is not None:
-                    f = d.callback(f)  # ok if we assume simple multiplication factor
-                self.write_fdr(f"DREF, {d.dataref}  {d.factor}")
+                if d.writable:
+                    self.fdr_write_line(f"DREF, {d.dataref}  {d.factor}")
+                else:
+                    self.fdr_write_line(f"DREF, {d.dataref}  {d.factor}  // not writable")
 
         # FDRReader meta
-        self.write_fdr("\n")
+        self.fdr_write_line("\n")
         for d in self.fdr_all_data_values:
-            self.write_fdr(f"COMM, {d.fun()}")
+            self.fdr_write_line(f"COMM, {d.fun()}")
 
         # Additional comments
         self.start_situation()
@@ -1687,10 +1692,10 @@ class PythonInterface:
                 for i in d.indices:
                     columns.append(f"{d.name}[{i}]")
         columns = ", ".join(columns)
-        self.write_fdr("\nCOMM, UTC time, " + columns + "\n")
+        self.fdr_write_line("\nCOMM, UTC time, " + columns + "\n")
         self.debug("FDR header written")
 
-    def csv_data_line(self) -> str:
+    def fdr_data_line(self) -> str:
         def expand(l: list) -> list:
             return reduce(lambda r, e: r + ([str(i) for i in e] if isinstance(e, (list, tuple)) else [str(e)]), l, [])
 
@@ -1705,7 +1710,7 @@ class PythonInterface:
     def record(self, elapsedSinceLastCall, elapsedTimeSinceLastFlightLoop, counter, inRefcon):
         try:
             if self.file is not None:
-                self.file.write(self.csv_data_line())
+                self.fdr_write_line(self.fdr_data_line())
                 self.writes = self.writes + 1
                 self.file.flush()
                 if self.report_frequency > 0 and self.writes % self.report_frequency == 0:
@@ -1723,13 +1728,13 @@ class PythonInterface:
             self.start_time = self.simulator_zulu_datetime
             self.last_stop = None
             self.writes = 0
-            self.csv_header_line()
+            self.fdr_header_lines()
             if self.recorderFL is None:
                 self.recorderFL = xp.createFlightLoop(callback=self.record, phase=xp.FlightLoop_Phase_AfterFlightModel, refCon=self.refRecorder)
                 xp.scheduleFlightLoop(self.recorderFL, self.frequency, 1)
                 xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 2)
                 st = self.simulator_zulu_datetime.isoformat()
-                self.write_fdr(f"COMM, start recording on {self.system_now_datetime.isoformat()} (sim time={st})\n")
+                self.fdr_write_line(f"COMM, start recording on {self.system_now_datetime.isoformat()} (sim time={st})\n")
                 self.debug(f"start_recording: started at {self.start_time.isoformat()}")
         else:
             self.debug("start_recording: no file, not started")
@@ -1747,8 +1752,8 @@ class PythonInterface:
                     self.save_navaids()
                 if self._afp is not None:
                     self._afp.save(file=self.file)
-                self.write_fdr(f"\n\nCOMM, end recording on {self.system_now_datetime.isoformat()} ({self.writes} writes)")
-                self.write_fdr(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
+                self.fdr_write_line(f"\n\nCOMM, end recording on {self.system_now_datetime.isoformat()} ({self.writes} writes)")
+                self.fdr_write_line(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
             self.debug(f"stop_recording: stopped at {self.start_time.isoformat()}")
 
     #
@@ -1760,7 +1765,7 @@ class PythonInterface:
         # On file close, Writes encountered navaids to FDR as comments
         for n in self.navaids.values():
             n.navType = n.navType.name
-            self.write_fdr(f"COMM, {n}")
+            self.fdr_write_line(f"COMM, {n}")
 
     def collect_navaids(self):
         if not self.recorder_running:
@@ -1792,7 +1797,7 @@ class PythonInterface:
                     )
                     self.navaids[k] = c
                     if WRITE_ASAP:
-                        self.write_fdr(f"COMM, {c}")
+                        self.fdr_write_line(f"COMM, {c}")
                     self.debug(f"collect_navaids: {c}")
 
             for radio in self.all_navaid_freqs:
@@ -1819,7 +1824,7 @@ class PythonInterface:
                             )
                             self.navaids[k] = c
                             if WRITE_ASAP:
-                                self.write_fdr(f"COMM, {c}")
+                                self.fdr_write_line(f"COMM, {c}")
                             self.debug(f"collect_navaids: R {freq} {c}")
         except Exception as e:
             self.debug(f"collect_navaids: error {e}")
@@ -1832,7 +1837,7 @@ class PythonInterface:
     def save_command_execution(self):
         # On file close, Writes encountered navaids to FDR as comments
         for c in self.commandExecs:
-            self.write_fdr(f"COMM, {c}")
+            self.fdr_write_line(f"COMM, {c}")
 
     def logCommandExecution(self, commandRef, phase, refcon):
         RECORD_PHASE = [2]
@@ -1841,7 +1846,7 @@ class PythonInterface:
             self.commandExecs.append(c)
             self.debug(f"logCommandExecution: {c}")
             if WRITE_ASAP:
-                self.write_fdr(f"COMM, {c}")
+                self.fdr_write_line(f"COMM, {c}")
         return 1
 
     def start_command_logging(self):

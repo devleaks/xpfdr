@@ -3,11 +3,15 @@
 Flight Data Recorder is a customizable flight data recording plugin for X-Plane flight simulator.
 It generates X-Plane FDR files from a running flight.
 
+Emphasis of this recorder is to collect data and display it in a FDR viewer.
+The primary goal is not to replay the flight, but rather to collect data and look at it.
 
-# Operations
 
-The plugin installs a permanent supervisor procedure that determines if the FDR recording needs to occur.
-It automatically starts when aircraft movement is detected, it stops when there is no movement for 10 minutes.
+# Usage
+
+The plugin installs a supervisor process that determines if the FDR recording needs to occur.
+Recording automatically starts when aircraft movement is detected,
+and stops when there is no aircraft movement for 10 minutes.
 
 Alternatively, it is possible to manually start and stop the recording through the _Start or stop FDR_ Plugin Menu entry.
 An _enabled_ marker (white dot) sits in front of the menu entry when the recorder is running.

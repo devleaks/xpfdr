@@ -109,6 +109,10 @@ class FDRReader:
     def has_fdrdata(self) -> bool:
         return len(self.fdr_data) > 0
 
+    def column_names(self):
+        pure_comments = [c for c in self.meta["COMM"] if all(s not in c[1] for s in ["NavAid(", "FDRData(", "Command("])]
+        return pure_comments[-2][1]
+
     def parse(self) -> bool:
         #
         # ACFT, Aircraft/Airbus/ToLiss A321/a321.acf
@@ -224,7 +228,7 @@ class FDRReader:
             # else, probably data...
             # if first data encounted, hope last comment was column headings
             if not header_out and len(self.meta["COMM"]) > 0:
-                header_line = self.meta["COMM"][-2][1]
+                header_line = self.column_names()
                 self.header = [l.strip() for l in header_line.split(",")]
                 t = self.header[0]
                 if not "time" in self.header[0].lower():
