@@ -1603,7 +1603,7 @@ class PythonInterface:
         if self.file is not None:
             try:
                 text = ''.join(c for c in text if c.isprintable() or c == "\n" or c == "\r")
-                print(text, end="\n" if self.arch == FDR_ARCH else "\r\n", flush=True, file=self.file)
+                print(text, end="\n" if self.arch == FDR_ARCH[0] else "\r\n", flush=True, file=self.file)
             except Exception as e:
                 self.debug(f"write_fdr: exception: {e}", force=True)
         else:
@@ -1801,7 +1801,10 @@ class PythonInterface:
                     )
                     self.navaids[k] = c
                     if WRITE_ASAP:
+                        nt = c.navType
+                        c.navType = c.navType.name
                         self.fdr_write_line(f"COMM, {c}")
+                        c.navType = nt
                     self.debug(f"collect_navaids: {c}")
 
             for radio in self.all_navaid_freqs:
@@ -1828,7 +1831,10 @@ class PythonInterface:
                             )
                             self.navaids[k] = c
                             if WRITE_ASAP:
+                                nt = c.navType
+                                c.navType = c.navType.name
                                 self.fdr_write_line(f"COMM, {c}")
+                                c.navType = nt
                             self.debug(f"collect_navaids: R {freq} {c}")
         except Exception as e:
             self.debug(f"collect_navaids: error {e}")
