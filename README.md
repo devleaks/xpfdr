@@ -89,10 +89,12 @@ fdr_data:
   - name: true_air_speed
     dataref: sim/flightmodel/position/true_airspeed
     unit: m/s
+    chart: Speeds
   - name: vertical_speed
     dataref: sim/cockpit2/gauges/indicators/vvi_fpm_pilot
     unit: m/s # dataref is ft/min, converted by callback
     callback: ${x} 0.00508 *
+    chart: Speeds
 ```
 
  - `fdr_arch` identifies the FDR file architecture, either APPLE or IBM. Used to determine line termitors.
@@ -131,6 +133,8 @@ Collected data is described by the following fields:
      Optional but highly recommanded.
   - `factor`: Convertion factor (float value) used by FDR DREF parameter. Optional.
   - `callback`: Reverse polish notation expression, in which `${x}` is replaced with the dataref value. Optional.
+  - `chart` : A hint to group data in the same chart in the viewer. Optional.
+    (If the chart name is `no-chart`, the data is not presented in the viewer.)
 
 The callback string is a Reverse polish notation expression.
 Its goal is a provide an easy mechanism to alter raw dataref values to meaningful record value
@@ -277,7 +281,7 @@ When completed, simply reload XPPython3 script again.
 There is a compagnon script `fdr_reader.py` that reads a FDR record file and generates
 
   - a GeoJSON file that can be viewed on [geojson.io](geojson.io) for example,
-  - a CSV file with all data.
+  - a CSV file with all data ([example viewer](https://datafrog.tools).)
 
 In the GeoJSON file, FDR data is added as a list of feature properties along with (3D) Point position.
 The GeoJSON file also contain additional Features like the whole flight path as a LineString.

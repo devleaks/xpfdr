@@ -242,6 +242,7 @@ class FDRData:
     unit: str | None = None
     force_datatype: str | None = None
     factor: float = 1.0
+    chart: str | None = None  # hint to group data in same chart
     dref = None
 
     @classmethod
@@ -497,8 +498,8 @@ FDR_DATA = [
     FDRData(name="latitude", dataref="sim/flightmodel/position/latitude"),
     FDRData(name="altitude", dataref="sim/flightmodel/position/elevation", callback=f"{DREF_SUB} 3.28084 *", unit="ft"),  # m to ft, FDR expects ft
     FDRData(name="heading", dataref="sim/cockpit2/gauges/indicators/heading_electric_deg_mag_pilot"),
-    FDRData(name="pitch", dataref="sim/cockpit2/gauges/indicators/pitch_electric_deg_pilot"),
-    FDRData(name="roll", dataref="sim/cockpit2/gauges/indicators/roll_electric_deg_pilot"),
+    FDRData(name="pitch", dataref="sim/cockpit2/gauges/indicators/pitch_electric_deg_pilot", chart="Attitude"),
+    FDRData(name="roll", dataref="sim/cockpit2/gauges/indicators/roll_electric_deg_pilot", chart="Attitude"),
     FDRData(name="gs", dataref="sim/flightmodel2/position/groundspeed", unit="m/s"),
     FDRData(name="agl", dataref="sim/flightmodel2/position/y_agl"),
 ]
@@ -1598,7 +1599,7 @@ class PythonInterface:
     def fdr_write_line(self, text):
         if self.file is not None:
             try:
-                text = ''.join(c for c in text if c.isprintable())
+                text = ''.join(c for c in text if c.isprintable() or c == "\n" or c == "\r")
                 print(text, end="\n" if self.arch == FDR_ARCH else "\r\n", flush=True, file=self.file)
             except Exception as e:
                 self.debug(f"write_fdr: exception: {e}", force=True)

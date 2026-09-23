@@ -12,6 +12,7 @@
             background-repeat:no-repeat;
             background-position: center center;
             background-image: url(media/welcome-on.png);
+            color: #ddd;
         }
         body.dragging {
             background-image: url(media/welcome-off.png);
@@ -70,13 +71,14 @@ CHANGELOG
 1.4.1 17-SEP-2026 Code cleanup.
 1.5.0 18-SEP-2026 Refinements, dark mode, better tooltip, etc.
 1.6.0 20-SEP-2026 First distribuable release with viewer
+1.7.0 23-SEP-2026 Allow for chart grouping
 
 TO DO
   - Add buttons to zoom on take-off or landing. (from OOOI)
 
 */
 
-const VERSION = "1.6.0"
+const VERSION = "1.7.0"
 
 // File types for FDR: GeoJSON
 const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", "text/csv", ""]
@@ -143,31 +145,32 @@ const SPEED_CONVERT = {
 };
 const SPEED_UNIT = "kt";
 const SPEED_COLOR = [253, 128, 8];
-const SPEED_LABEL = "Ground speed (m/s)"
+const SPEED_LABEL = "Ground speed"  // Grd spd
 
-// Altitude MSL: Shows aircraft behavior
+// Two choices for altitude display: MSL or AGL
+// Altitude MSL: Shows aircraft behavior (in ft)
 const ALTITUDE_DATA = "altitude";  // name of GeoJSON feature property for altitude
 const ALTITUDE_CONVERT = {
     "m": 0.3048,
     "ft": 1,
-    "fl": 0.001
+    "FL": 0.001
 };
 const ALTITUDE_UNIT = "ft";
 const ALTITUDE_COLOR = [15, 128, 255];
 const SHOW_ALTITUDE = true;  // include altitude in GeoJSON file
-const ALTITUDE_LABEL = "Altitude MSL (ft)"
+const ALTITUDE_LABEL = "Altitude MSL"  // Alt MSL
 
-// Altitude AGL: Shows ground relief!
+// Altitude AGL: Shows ground relief! (in meters)
 // const ALTITUDE_DATA = "agl";  // name of GeoJSON feature property for altitude
 // const ALTITUDE_CONVERT = {
 //     "m": 1,
-//     "ft": 1/0.3048,
-//     "fl": 0.001
+//     "ft": 3.280839895,
+//     "FL": 0.001
 // };
 // const ALTITUDE_UNIT = "ft";
 // const ALTITUDE_COLOR = [15, 128, 255];
 // const SHOW_ALTITUDE = true;  // include altitude in GeoJSON file
-// const ALTITUDE_LABEL = "Altitude above ground (m)"
+// const ALTITUDE_LABEL = "Altitude above ground"  // Alt AGL
 
 // Line that is drawn on graph when aircraft is moved on map
 const CHART_CURSOR_COLOR = "rgba(102, 255, 255, 0.7)";
@@ -193,6 +196,7 @@ const AUTO_ADJUST_LAYOUT = true;
 var NUM_COLUMNS = 3;          
 var NUM_DATA_PER_CHART = 4;
 var RAW_FDR = false
+
 // Code
 //
 // Globals
@@ -203,7 +207,10 @@ var tlabels = [];   // x-axis time ticks (same for all charts)
 
 var speedAltChart = undefined; // for cursor positioning
 var otherCharts = {}; // for cursor positioning
-var chartCandidates = Array(); // additional charts to plot from properties
+
+var chartsToDraw = Array();
+var chartNames = {};
+var fdr_data = Array();
 
 var map; // leaflet map
 var mapCursor = undefined; // map cursor
@@ -236,7 +243,7 @@ const DATA_KEYWORDS = [
 
 // Container for data
 class FDRData {
-    constructor(name, dataref, pyslice, _indices, callback, unit, force_datatype, factor) {
+    constructor(name, dataref, pyslice, _indices, callback, unit, force_datatype, factor, chart) {
         this.name = name
         this.dataref = dataref
         this.pyslice = pyslice
@@ -245,6 +252,7 @@ class FDRData {
         this.unit = unit
         this.force_datatype = force_datatype
         this.factor = factor
+        this.chart = chart
     }
 }
 
@@ -260,6 +268,12 @@ class NavAid {
         this.frequency = frequency
         this.reg = reg
     }
+}
+
+function error(message) {
+    container = document.getElementById("charts");
+    container.innerHTML = message;
+    console.error(message);
 }
 
 const KEYVALUEREGEX = /(\w+)=('.*?'|".*?"|\s*\w+\(.*?\)|[^,=\s\)]+)/g;
@@ -284,7 +298,7 @@ function parseCSVFile(text) {
     const lon_idx = columns.indexOf(CSV_COLUMN_NAMES.longitude);
     const ts_idx = columns.indexOf(CSV_COLUMN_NAMES.timestamp);
     if (ts_idx == -1 || lat_idx == -1 || lon_idx == -1) {
-        console.error("No time, latitude and longitude in file");
+        error("No time, latitude and longitude in file");
         return {};
     }
     console.log(columns);
@@ -347,7 +361,7 @@ function parseFDRFile(text) {
     // \r CR 0x0D (13 decimal), \l LF 0x0A (10 decimal).
     let arch = String.fromCharCode(text.charCodeAt(0))
     if (["A", "I"].indexOf(arch) == -1) {
-        console.error("invalid X-Plane FDR file architecture", arch);
+        error("invalid X-Plane FDR file architecture", arch);
         return {};
     }
     console.log("FDR file architecture", arch);
@@ -362,12 +376,12 @@ function parseFDRFile(text) {
         nl = text.charCodeAt(3)
     }
     if (nl != 51 && nl != 52) {  // "3" and "4"
-        console.error("invalid X-Plane FDR file version", String.fromCharCode(nl), nl);
+        error("invalid X-Plane FDR file version", String.fromCharCode(nl), nl);
         return {};
     }
     let fdr_version = nl - 48;
     if ([3, 4].indexOf(fdr_version) == -1) {
-        console.error("invalid X-Plane FDR file version", fdr_version);
+        error("invalid X-Plane FDR file version", fdr_version);
         return {};
     }
     console.log("FDR data format version", fdr_version);
@@ -378,7 +392,6 @@ function parseFDRFile(text) {
     let i = 2;
     let date = new Date();
     let data = Array();
-    let fdr_data = Array();
     let navaids = Array();
     let commands = Array();
     let columns = Array();
@@ -413,7 +426,8 @@ function parseFDRFile(text) {
                         params["callback"],
                         params["unit"],
                         params["force_datatype"],
-                        params["factor"]
+                        params["factor"],
+                        params["chart"]
                     );
                     fdr_data.push(d);
                     // console.log(d);
@@ -429,9 +443,9 @@ function parseFDRFile(text) {
                             name: params["name"].replaceAll('"', ""),
                             navType: params["navType"].replace("Nav_", ""),
                             navAidId: params["navAidId"],
-                            height: parseFloat(params["height"]),
+                            height: parseFloat(params["height"]).toFixed(1),
                             heading: parseFloat(params["heading"]),
-                            frequency: parseFloat(params["frequency"]) > 80000 ?
+                            frequency: parseFloat(params["frequency"]) > 8000 ?
                                             parseFloat(params["frequency"])/100 : parseFloat(params["frequency"]),
                             reg: parseFloat(params["reg"])
                         }
@@ -812,7 +826,7 @@ function buildMap(text, filetype) {
 
     // guess properties list from first point feature
     const f = pointFeatures[0];
-    chartCandidates =  Object.keys(f.properties)
+    const chartCandidates =  Object.keys(f.properties)
         .filter((p) => typeof(f.properties[p]) == "number" && IGNORE.indexOf(p.trim()) == -1);
     // console.log(chartCandidates, chartCandidates.length);
 
@@ -821,21 +835,42 @@ function buildMap(text, filetype) {
     Chart.defaults.color = '#ddd';        
 
     buildSpeedAltChart();
-    if (chartCandidates.length > 0) {
-        if (AUTO_ADJUST_LAYOUT) {
-            optimizeChartLayout(chartCandidates.length);
-        }
-        container = document.getElementById("charts");
-        let width = Math.floor(100 / NUM_COLUMNS, 0) + "%";
-        for(i = 0; i < NUM_COLUMNS; i++) {
-            let div = document.createElement("div");
-            div.id = "charts" + i;
-            div.classList.add("chart");
-            div.style.width = width;
-            container.appendChild(div);
-        }
-        buildOtherCharts();
+    if (chartCandidates.length == 0) {
+        return;
     }
+
+    chartsToDraw =  chartCandidates.slice(); // copy
+    let namedCharts = 0;
+    if (fdr_data.length > 0) {
+        fdr_data.forEach( (d) => {
+            if (d.chart != null) {
+                if (Object.keys(chartNames).indexOf(d.chart) == -1) {
+                    chartNames[d.chart] = Array();
+                    if (d.chart != "no-chart") {
+                        namedCharts++;
+                    }
+                }
+                chartNames[d.chart].push(d.name);
+                remove(chartsToDraw, d.name)
+            }
+        });
+    }
+    console.log("named charts", chartNames);
+    console.log("other charts", chartsToDraw);
+
+    if (AUTO_ADJUST_LAYOUT) {
+        optimizeChartLayout(namedCharts + chartsToDraw.length);
+    }
+    container = document.getElementById("charts");
+    let width = Math.floor(100 / NUM_COLUMNS, 0) + "%";
+    for(i = 0; i < NUM_COLUMNS; i++) {
+        let div = document.createElement("div");
+        div.id = "charts" + i;
+        div.classList.add("chart");
+        div.style.width = width;
+        container.appendChild(div);
+    }
+    buildOtherCharts();
 }
 
 // CHARTS
@@ -1114,12 +1149,51 @@ function buildSpeedAltChart() {
     // container.innerHTML += "&nbsp;"
 }
 
+function remove(arr, elem) {
+    const index = arr.indexOf(elem);
+    if (index > -1) {
+      arr.splice(index, 1);
+    }
+    return arr;
+}
+
 function buildOtherCharts() {
     let i = 0;
-    let datasets = []
-    let title = []
-    while (i < chartCandidates.length) {
-        let label = chartCandidates[i];
+    let datasets = [];
+    let title = [];
+
+    // Named charts
+    Object.keys(chartNames).forEach( (c) => {
+        if (c == "no-chart") {
+            return;
+        }
+        let label = c;
+        chartNames[c].forEach( (d) => {
+            let data = propertyValues(d);
+            title.push(d.replaceAll("_", " "))
+            datasets.push({
+                backgroundColor: chartColor(i) + "60", // transparency
+                borderColor: chartColor(i),
+                borderWidth: 2,
+                data: data,
+                label: d.replaceAll("_", " "),
+                pointRadius: 0,
+                tension: 0,
+                yAxisID: NUM_DATA_PER_CHART == 2 && (i%2) == 1 ? "y1" : "y",
+            });
+            i++;
+        });
+        if (datasets.length >= NUM_DATA_PER_CHART) {
+            addChart([label], datasets);
+            title = [];
+            datasets = [];
+        }
+    });
+
+    i = 0;
+    // All remaining charts
+    while (i < chartsToDraw.length) {
+        let label = chartsToDraw[i];
         let data = propertyValues(label);
         title.push(label.replaceAll("_", " "))
         datasets.push({
@@ -1409,10 +1483,11 @@ document.documentElement.addEventListener("drop", (e) => {
         buildMap(fr.result, ft);
     };
     if (ALLOWED_FILE_TYPES.indexOf(e.dataTransfer.files[0].type) > -1) {
-        console.log("file type", e.dataTransfer.files[0].type)        
+        console.log("file FDR viewer", VERSION);        
+        console.log("file type", e.dataTransfer.files[0].type);
         fr.readAsText(e.dataTransfer.files[0]);
     } else {
-        console.log("invalid file type", e.dataTransfer.files[0].type)        
+        console.log("invalid file type", e.dataTransfer.files[0].type);
     }
 });
 
