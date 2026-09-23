@@ -6,7 +6,7 @@ from pprint import pprint
 from enum import Enum
 from traceback import print_exc
 
-from PI_fdr import FDRData, NavAid, Command
+from PI_fdr import FDRData, NavAid, Command, UTC_TIME
 
 HEADER_KEYWORDS = [
     "ACFT",
@@ -232,7 +232,7 @@ class FDRReader:
                 self.header = [l.strip() for l in header_line.split(",")]
                 t = self.header[0]
                 if not "time" in self.header[0].lower():
-                    self.header = ["UTC Time"] + self.header
+                    self.header = [UTC_TIME] + self.header
                 print(f"Header {', '.join(self.header)}")
                 header_out = True
 
@@ -324,7 +324,7 @@ class FDRReader:
                     ts.replace(microsecond=int(100000 * f))
             except:
                 pass
-            props["UTC Time"] = ts.isoformat()
+            props[UTC_TIME] = ts.isoformat()
             # feature
             features.append({"type": "Feature", "id": feature_index, "geometry": {"type": "Point", "coordinates": p}, "properties": props})
             feature_index += 1
@@ -361,7 +361,7 @@ class FDRReader:
                     "geometry": features[c.index]["geometry"],
                     "properties": {
                         "command": c.name,
-                        "UTC Time": c.when,
+                        UTC_TIME: c.when,
                         "index": c.index,
                         "phase": c.phase,
                         "before": c.before,

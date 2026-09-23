@@ -14,7 +14,7 @@ COMM: any comment
 
 ACFT: the aircraft file to use, with full directory path from the X-Plane folder (ex: Aircraft/Heavy Metal/Boeing 747.acf).
 TAIL: tail number of the aircraft (ex: N8141Q). Must come immediately after the ACFT line.
-TIME: ZULU time of the beginning of the flight (ex: 18:54:32).
+TIME: ZULU time of the beginning of the flight (ex: 18:54:32). Optional in v4 since time is included on data line.
 DATE: date of the flight (ex: 03/05/02).
 PRES: sea-level pressure during the flight in inches HG (ex: 29.92).
 TEMP: sea-level temperatre during the flight in degrees farenheit (ex: 65).
@@ -59,6 +59,8 @@ CHANGELOG
 1.5.3 15-SEP-2026 Maintenance release, code cleanup
 1.6.0 20-SEP-2026 First distribuable release with viewer
 1.6.1 21-SEP-2026 Drop support to generate older file, generate A or I
+1.7.0 23-SEP-2026 Allow for chart specification in FDRData
+
 
 """
 
@@ -123,7 +125,7 @@ FDR_PREFERENCE_FILE = "fdr.prf"
 FDR_VERSION = 4  # 3 or 4
 FDR_ARCH = "APPLE"  # "APPLE" or "IBM"
 
-SHOW_TRACE = True
+SHOW_TRACE = False
 WRITE_FREQUENCY = 10.0  # seconds
 REPORT_FREQUENCY = 100  # number of writes before logging
 AUTOSTART = True
@@ -135,6 +137,7 @@ WRITE_ASAP = True
 
 LINREG_LEN = 10  # number of points in linear regression
 DREF_SUB = "${x}"
+UTC_TIME = "UTC Time" # rendez-vous stringLongues lignes droite
 
 # Thresholds
 MIN_SPEED = 1.0  # m/s, below that speed is stopped
@@ -1693,7 +1696,7 @@ class PythonInterface:
                 for i in d.indices:
                     columns.append(f"{d.name}[{i}]")
         columns = ", ".join(columns)
-        self.fdr_write_line("\nCOMM, UTC time, " + columns + "\n")
+        self.fdr_write_line(f"\nCOMM, {UTC_TIME}, " + columns + "\n")
         self.debug("FDR header written")
 
     def fdr_data_line(self) -> str:
