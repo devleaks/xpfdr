@@ -320,6 +320,23 @@ FDR Viewer display a Flightradar24/Flight Aware type of graph with
 If additional values are requested through a preference file,
 all additional values are presented in similar graphs.
 
+The _Data Definition_ structure contains a `chart` attribute.
+It is the name of a chart.
+All data with the same chart name will be displayed on the same chart.
+This allow for grouping and organisation of data on charts.
+
+Here is an example of the standard viewer presentation:
+
+```python
+FDRData(name="pitch", dataref="sim/cockpit2/gauges/indicators/pitch_electric_deg_pilot", chart="Attitude")
+FDRData(name="roll", dataref="sim/cockpit2/gauges/indicators/roll_electric_deg_pilot", chart="Attitude")
+```
+
+In this case, both data values will presented in the same chart named Attitude.
+
+![Attitude chart](https://raw.githubusercontent.com/devleaks/xpfdr/refs/heads/main/fdr_viewer/media/attitude.png)
+
+
 Map is presented thanks to [Leaflet](https://leafletjs.com).
 Charts are presented thanks to [ChartJS](https://www.chartjs.org).
 Navaid icons stolen from [Little Navmap](https://albar965.github.io/littlenavmap.html).
