@@ -1602,10 +1602,12 @@ class PythonInterface:
     def _write(self, text):
         if self.file is not None:
             try:
-                text = ''.join(c for c in text if c.isprintable() or c == "\n" or c == "\r")
-                print(text, end="\n" if self.arch == FDR_ARCH[0] else "\r\n", flush=True, file=self.file)
+                good = ''.join(c for c in text if c.isprintable() or c == "\n" or c == "\r")
+                print(good, end="\n" if self.arch == FDR_ARCH[0] else "\r\n", flush=True, file=self.file)
             except Exception as e:
                 self.debug(f"_write: exception: {e}", force=True)
+                l = [ord(c) for c in text]
+                self.debug(f"_write: exception: {l}", force=True)
         else:
             self.debug("_write: no file", force=True)
 
