@@ -1708,7 +1708,7 @@ class PythonInterface:
                 for i in d.indices:
                     columns.append(f"{d.name}[{i}]")
         self.fdr_new_line()
-        self.fdr_comment_line(f"{UTC_TIME}, {', '.join(columns)}"
+        self.fdr_comment_line(f"{UTC_TIME}, {', '.join(columns)}")
         self.fdr_new_line()
         self.debug("FDR header written")
 
