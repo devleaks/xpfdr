@@ -1506,7 +1506,7 @@ class PythonInterface:
                     if SHOW_TRACE:
                         self.debug(f"load_acf_preferences: no aircraft preference file {acffile}")
                     else:
-                        self.debug("no aircraft preference file", force=True)
+                        self.debug("no aircraft preference file")
         except Exception as e:
             self.debug(f"load_acf_preferences: exception: {e}", force=True)
             print_exc()
@@ -1599,15 +1599,24 @@ class PythonInterface:
         self.file = open(outfile, "w")
         return outfile
 
-    def fdr_write_line(self, text):
+    def _write(self, text):
         if self.file is not None:
             try:
                 text = ''.join(c for c in text if c.isprintable() or c == "\n" or c == "\r")
                 print(text, end="\n" if self.arch == FDR_ARCH[0] else "\r\n", flush=True, file=self.file)
             except Exception as e:
-                self.debug(f"write_fdr: exception: {e}", force=True)
+                self.debug(f"_write: exception: {e}", force=True)
         else:
-            self.debug("write_fdr: no file", force=True)
+            self.debug("_write: no file", force=True)
+
+    def fdr_new_line(self):
+        self._write("\n")
+
+    def fdr_write_line(self, text):
+        self._write(text)
+
+    def fdr_comment_line(self, text):
+        self._write("COMM, " + text)
 
     def close_fdr_file(self):
         if self.file is not None:
@@ -1619,28 +1628,29 @@ class PythonInterface:
         if self.file is None:
             return
         self.estimated_state = self.flight_status
-        self.fdr_write_line(f"\nCOMM, INFO Flight state {self.estimated_state.name}")
+        self.fdr_new_line()
+        self.fdr_comment_line(f"INFO Flight state {self.estimated_state.name}")
         lat = self.fdr_mand.get("latitude").value
         lon = self.fdr_mand.get("longitude").value
         alt = self.fdr_mand.get("agl").value
         hdg = self.fdr_mand.get("heading").value
         spd = self.fdr_mand.get("gs").value
-        self.fdr_write_line(f"COMM, INFO lat={lat}, lon={lon}, alt={alt}, hdg={hdg}, speed={spd}")
-        self.fdr_write_line(f"COMM, INFO supervisor={AUTOSTART_FREQUENCY} recorder={self.frequency}")
-        self.fdr_write_line(f"COMM, INFO custom_chocks={self.custom_chocks.dataref if self.custom_chocks is not None else 'none'}")
+        self.fdr_comment_line(f"INFO lat={lat}, lon={lon}, alt={alt}, hdg={hdg}, speed={spd}")
+        self.fdr_comment_line(f"INFO supervisor={AUTOSTART_FREQUENCY} recorder={self.frequency}")
+        self.fdr_comment_line(f"INFO custom_chocks={self.custom_chocks.dataref if self.custom_chocks is not None else 'none'}")
 
         # FDR Info
         if len(self.fdr_info) > 0:
             for d in self.fdr_info:
                 if d.dref is None:
                     self.debug(f"start_situation: dataref {d} not found", force=True)
-                    self.fdr_write_line(f"COMM, INFO dataref {d} not found")
+                    self.fdr_comment_line(f"INFO dataref {d} not found")
                     continue
-                self.fdr_write_line(f"COMM, INFO {d.name}: {d.dataref}={d.value}")
+                self.fdr_comment_line(f"INFO {d.name}: {d.dataref}={d.value}")
 
     def save_oooi(self):
         if all(self.oooi.values()):
-            self.fdr_write_line("COMM, OOOI ----")
+            self.fdr_comment_line("OOOI ----")
             self.debug("OOOI ----")
             return
         for o in OOOI:
@@ -1648,13 +1658,13 @@ class PythonInterface:
             c = self.oooi_notes[o]
             self.debug(f"OOOI {o.name} {t}" + (f" ({c})" if c is not None else ""), force=True)
             if t is not None:
-                self.fdr_write_line(f"COMM, OOOI {o.name} {t.isoformat()}" + (f" ({c})" if c is not None else ""))
+                self.fdr_comment_line(f"OOOI {o.name} {t.isoformat()}" + (f" ({c})" if c is not None else ""))
 
     def fdr_header_lines(self):
         print(f"{FDR_ARCH[0]}\r{FDR_VERSION}\n", file=self.file)
 
         # Script info, use local time
-        self.fdr_write_line(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
+        self.fdr_comment_line(f"created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
 
         # FDR Meta data
         self.fdr_write_line(f"ACFT, {self.header.get('ACFT').value}")
@@ -1666,11 +1676,11 @@ class PythonInterface:
 
         # FDR Datarefs
         if len(self.fdr_data) > 0:
-            self.fdr_write_line("\n")
+            self.fdr_new_line()
             for d in self.fdr_data.values():
                 if d.dref is None:
                     self.debug(f"dataref {d} not found, not monitored", force=True)
-                    self.fdr_write_line(f"COMM, dataref {d} not found, not monitored")
+                    self.fdr_comment_line(f"dataref {d} not found, not monitored")
                     continue
                 if d.writable:
                     self.fdr_write_line(f"DREF, {d.dataref}  {d.factor}")
@@ -1678,9 +1688,9 @@ class PythonInterface:
                     self.fdr_write_line(f"DREF, {d.dataref}  {d.factor}  // not writable")
 
         # FDRReader meta
-        self.fdr_write_line("\n")
+        self.fdr_new_line()
         for d in self.fdr_all_data_values:
-            self.fdr_write_line(f"COMM, {d.fun()}")
+            self.fdr_comment_line(f"{d.fun()}")
 
         # Additional comments
         self.start_situation()
@@ -1695,8 +1705,9 @@ class PythonInterface:
             else:
                 for i in d.indices:
                     columns.append(f"{d.name}[{i}]")
-        columns = ", ".join(columns)
-        self.fdr_write_line(f"\nCOMM, {UTC_TIME}, " + columns + "\n")
+        self.fdr_new_line()
+        self.fdr_comment_line(f"{UTC_TIME}, {', '.join(columns)}"
+        self.fdr_new_line()
         self.debug("FDR header written")
 
     def fdr_data_line(self) -> str:
@@ -1738,10 +1749,10 @@ class PythonInterface:
                 xp.scheduleFlightLoop(self.recorderFL, self.frequency, 1)
                 xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 2)
                 st = self.simulator_zulu_datetime.isoformat()
-                self.fdr_write_line(f"COMM, start recording on {self.system_now_datetime.isoformat()} (sim time={st})\n")
+                self.fdr_comment_line(f"start recording on {self.system_now_datetime.isoformat()} (sim time={st})\n")
                 self.debug(f"start_recording: started at {self.start_time.isoformat()}")
         else:
-            self.debug("start_recording: no file, not started")
+            self.debug("start_recording: no file, not started", force=True)
 
     def stop_recording(self):
         if self.recorderFL is not None:
@@ -1756,8 +1767,10 @@ class PythonInterface:
                     self.save_navaids()
                 if self._afp is not None:
                     self._afp.save(file=self.file)
-                self.fdr_write_line(f"\n\nCOMM, end recording on {self.system_now_datetime.isoformat()} ({self.writes} writes)")
-                self.fdr_write_line(f"COMM, created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
+                self.fdr_new_line()
+                self.fdr_new_line()
+                self.fdr_comment_line(f"end recording on {self.system_now_datetime.isoformat()} ({self.writes} writes)")
+                self.fdr_comment_line(f"created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
             self.debug(f"stop_recording: stopped at {self.start_time.isoformat()}")
 
     #
@@ -1769,7 +1782,7 @@ class PythonInterface:
         # On file close, Writes encountered navaids to FDR as comments
         for n in self.navaids.values():
             n.navType = n.navType.name
-            self.fdr_write_line(f"COMM, {n}")
+            self.fdr_comment_line(f"{n}")
 
     def collect_navaids(self):
         if not self.recorder_running:
@@ -1803,7 +1816,7 @@ class PythonInterface:
                     if WRITE_ASAP:
                         nt = c.navType
                         c.navType = c.navType.name
-                        self.fdr_write_line(f"COMM, {c}")
+                        self.fdr_comment_line(f"{c}")
                         c.navType = nt
                     self.debug(f"collect_navaids: {c}")
 
@@ -1833,7 +1846,7 @@ class PythonInterface:
                             if WRITE_ASAP:
                                 nt = c.navType
                                 c.navType = c.navType.name
-                                self.fdr_write_line(f"COMM, {c}")
+                                self.fdr_comment_line(f"{c}")
                                 c.navType = nt
                             self.debug(f"collect_navaids: R {freq} {c}")
         except Exception as e:
@@ -1847,7 +1860,7 @@ class PythonInterface:
     def save_command_execution(self):
         # On file close, Writes encountered navaids to FDR as comments
         for c in self.commandExecs:
-            self.fdr_write_line(f"COMM, {c}")
+            self.fdr_comment_line(f"{c}")
 
     def logCommandExecution(self, commandRef, phase, refcon):
         RECORD_PHASE = [2]
@@ -1856,7 +1869,7 @@ class PythonInterface:
             self.commandExecs.append(c)
             self.debug(f"logCommandExecution: {c}")
             if WRITE_ASAP:
-                self.fdr_write_line(f"COMM, {c}")
+                self.fdr_comment_line(f"{c}")
         return 1
 
     def start_command_logging(self):
