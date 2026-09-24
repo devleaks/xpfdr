@@ -23,7 +23,14 @@ const {DeckGL, GeoJsonLayer, SunLight, LightingEffect} = deck;
 fetch('out.geojson')
   .then(response => response.json())
   .then(data => {
-        const fc = data.features
+        const fc = data.features.filter((f) => f.geometry.type == "LineString" && f.properties["name"] == "flight path");
+        const fc1 = data.features.filter((f) => f.geometry.type == "LineString" && f.properties["name"] == "flight path, no altitude");
+        const flight_path = fc[0]
+        const flight_shadow = fc1[0]
+        const length = flight_path["geometry"]["coordinates"].length;
+        const middle = Math.round(length/2);
+        const center = flight_path["geometry"]["coordinates"][middle];
+        console.log(flight_path, length, center);
 
         // const directionalLight = new SunLight({
         //   timestamp: Date.UTC(2024, 7, 1, 22),
@@ -35,7 +42,7 @@ fetch('out.geojson')
 
         const flight = new GeoJsonLayer({
           id: 'flight',
-          data: fc[fc.length-4],
+          data: flight_path,
 
           stroked: true,
           filled: true,
@@ -52,7 +59,7 @@ fetch('out.geojson')
 
         const shadow = new GeoJsonLayer({
           id: 'shadow',
-          data: fc[fc.length-2],
+          data: flight_shadow,
 
           stroked: true,
           filled: true,
@@ -60,7 +67,7 @@ fetch('out.geojson')
           pickable: true,
 
           getFillColor: [160, 160, 0, 50],
-          getLineColor: [210, 210, 220],
+          getLineColor: [180, 180, 180],
           getLineWidth: 20,
           getPointRadius: 20,
           getText: f => f.properties.name,
@@ -70,9 +77,9 @@ fetch('out.geojson')
         new DeckGL({
           mapStyle: 'https://basemaps.cartocdn.com/gl/positron-nolabels-gl-style/style.json',
           initialViewState: {
-            longitude: 4.47,
-            latitude: 50.46,
-            zoom: 12
+            longitude: center[0],
+            latitude: center[1],
+            zoom: 8
           },
           controller: true,
           layers: [
