@@ -6,6 +6,7 @@
     <script src="chartjs/chart.umd.js"></script>
     <script src="chartjs/chartjs-adapter-luxon.umd.js"></script>
     <script src="chartjs/chartjs-plugin-zoom.js"></script>
+    <script src="timelines/timelines-chart.js"></script>
     <style>
         body {
             background-color: #222;
@@ -39,6 +40,7 @@
             font-family: sans-serif;
             font-size: x-small;
             margin-bottom: 4px;
+            padding-top: 10px;
             position: absolute;
             text-align: center;
             width: 100%;
@@ -55,6 +57,8 @@
         <div id="buttons"></div>
         <!-- additional charts will come here -->
         <!-- <canvas id="chart#" class="chart"></canvas> -->
+    </div>
+    <div id="timeline">
     </div>
     <div id=footer>
         Map by <a href="https://leafletjs.com">Leaflet</a>,
@@ -780,8 +784,10 @@ function buildMap(text, filetype) {
 
     // commands
     commandFeatures = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("command") > -1)
+    console.log("commandFeatures", commandFeatures.length);
     let commands = commandFeatures.map( (f) => {
-        f.geometry = pointFeatures[f.properties["index"]]["geometry"]
+        let idx = f.properties["index"] < pointFeatures.length ? f.properties["index"] : pointFeatures.length - 1;
+        f.geometry = pointFeatures[idx]["geometry"]
         m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
             icon: NAVAID_ICON("Command")
         });
@@ -871,7 +877,113 @@ function buildMap(text, filetype) {
         container.appendChild(div);
     }
     buildOtherCharts();
+    buildTimeline(commandFeatures, pointFeatures[0], pointFeatures[pointFeatures.length - 1]);
 }
+
+function makeTimeline(fc, first, last) {
+    if (fc.length == 0) {
+        return Array();
+    }
+    console.log("input commands", fc.length);
+
+    const ONE_SEC = 1000;
+    // parse
+    let cats = { // this is the whole flight
+        Timeline: {
+            Duration: [{
+                timeRange: [
+                    new Date(first.properties["UTC Time"]),
+                    new Date(last.properties["UTC Time"])
+                ],
+                val: "Flight"
+            }]
+        }
+    };
+    fc.forEach( (f) => {
+        let cat = f.properties.group
+        if (cat == undefined) {
+            cat = "default"
+        }
+        let lbl = f.properties.category
+        if (lbl == undefined) {
+            lbl = "default"
+        }
+        if (Object.keys(cats).indexOf(cat) == -1) {
+            cats[cat] = {}
+        }
+        let lbls = cats[cat];
+        if (Object.keys(lbls).indexOf(lbl) == -1) {
+            lbls[lbl] = Array();
+        }
+        let when = new Date(f.properties["UTC Time"]);
+        lbls[lbl].push({timeRange: [when, new Date(when.getTime() + ONE_SEC)], val: f.properties.command})
+    });
+    // reformat
+    let cmds = Array();
+    Object.keys(cats).forEach( (c) => {
+        let d = Array();
+        Object.keys(cats[c] ).forEach( (l) => {
+            d.push({label: l, data: cats[c][l]})
+        });
+        cmds.push({group: c, data: d})
+    });
+    console.log("reformatted commands", JSON.parse(JSON.stringify(cmds, null, 2)));
+    return cmds;
+}
+
+function buildTimeline(fc, first, last) {
+    const tldata = makeTimeline(fc, first, last);
+    if (tldata.length > 0) {
+        const tl = document.getElementById("timeline");
+        const myChart = new TimelinesChart(tl)
+                .data(tldata);
+            console.log("timeline built")
+      } else {
+        const tl = document.getElementById("timeline");
+        const myChart = new TimelinesChart(tl)
+          .xTickFormat(n => +n)
+          .timeFormat('%Q')
+          .data(genRandomData());
+        console.log("timeline built")
+    }
+}
+
+function genRandomData() {
+  const NLINES = 25,
+    MAXSEGMENTS = 10,
+    MIN_X = 0,
+    MAX_X = 100;
+
+  return [{
+    group: '',
+    data: [...Array(NLINES).keys()].map(i => ({
+      label: `line${i+1}`,
+      data: getSegmentsData()
+    }))
+  }];
+
+  //
+
+  function getSegmentsData() {
+    const nSegments = Math.ceil(Math.random()*MAXSEGMENTS),
+      segMaxLength = Math.round((MAX_X-MIN_X)/nSegments);
+    let runLength = MIN_X;
+
+    return [...Array(nSegments).keys()].map(i => {
+      const tDivide = [Math.random(), Math.random()].sort(),
+        start = runLength + tDivide[0]*segMaxLength,
+        end = runLength + tDivide[1]*segMaxLength;
+
+      runLength = runLength + segMaxLength;
+
+      return {
+        timeRange: [start, end],
+        val: Math.random()
+      };
+    });
+  }
+}
+
 
 // CHARTS
 function optimizeChartLayout(numdata) {
