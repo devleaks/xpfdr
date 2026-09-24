@@ -329,6 +329,8 @@ class FDRReader:
             features.append({"type": "Feature", "id": feature_index, "geometry": {"type": "Point", "coordinates": p}, "properties": props})
             feature_index += 1
 
+        numpts = len(features)
+
         # add whole line string
         feature_index += 1
         features.append({"type": "Feature", "id": feature_index, "geometry": {"type": "LineString", "coordinates": lines}, "properties": {"name": "flight path"}})
@@ -354,11 +356,12 @@ class FDRReader:
         # commands
         for c in self.commands:
             feature_index += 1
+            idx = c.index if c.index < numpts else numpts - 1
             features.append(
                 {
                     "type": "Feature",
                     "id": feature_index,
-                    "geometry": features[c.index]["geometry"],
+                    "geometry": features[idx]["geometry"],
                     "properties": {
                         "command": c.name,
                         UTC_TIME: c.when,

@@ -473,6 +473,8 @@ class Command:
     index: int
     phase: int
     before: int
+    group: str = "default"
+    category: str = "default"
 
 
 # Collected once for session, displayed in FDR report header
