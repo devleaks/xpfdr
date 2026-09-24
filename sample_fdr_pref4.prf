@@ -1,8 +1,7 @@
-fdr_version: 4.0.0
 description: Sample preference file from FDR Version 4 format description file
 frequency: 5
-report_frequency: 200
-fdr_optional:
+report_frequency: 100
+fdr_data:
     ### PART 1
     - name: barometer_setting_in_hg_pilot
       dataref: sim/cockpit2/gauges/actuators/barometer_setting_in_hg_pilot

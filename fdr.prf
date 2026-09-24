@@ -1,5 +1,4 @@
-fdr_version: 4
-fdr_arch: APPLE
 description: Preference file for finer recording
+fdr_arch: APPLE
 frequency: 1
 report_frequency: 300
