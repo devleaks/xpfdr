@@ -364,7 +364,7 @@ class FDRData:
             print(f"{NAME} {VERSION}::FDRData.writable: {self.dataref} no dref")
             return r
         try:
-            r = xp.canWriteDataRef(self.dref)
+            r = xp.canWriteDataRef(self.dref.dref)
         except Exception as e:
             if SHOW_TRACE:
                 print(f"{NAME} {VERSION}::FDRData.writable: {self.name} {self.dataref} exception: {e}")
