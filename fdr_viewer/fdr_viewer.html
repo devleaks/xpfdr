@@ -33,7 +33,7 @@
           justify-content: center;
           align-items: center;
         }
-        #timeline_c {
+        .timeline {
             height: 200px;
         }
         #footer {
@@ -58,9 +58,9 @@
         <div id="buttons"></div>
         <!-- additional charts will come here -->
         <!-- <canvas id="chart#" class="chart"></canvas> -->
-    </div>
-    <div id="timeline_c">
-        <canvas id="timeline"></canvas>
+        <div id="timeline" class="timeline">
+            <canvas id="timelineChart"></canvas>
+        </div>
     </div>
     <div id=footer>
         Map by <a href="https://leafletjs.com">Leaflet</a>,
@@ -1457,7 +1457,7 @@ function buildTimeline(fc) {
         }
     };
 
-    let ctx = document.getElementById("timeline");
+    let ctx = document.getElementById("timelineChart");
     timelineChart = new Chart(ctx, config);
 }
 

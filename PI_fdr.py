@@ -111,7 +111,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "1.6.0"
+VERSION = "1.7.1"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -359,10 +359,15 @@ class FDRData:
 
     @property
     def writable(self) -> bool:
+        r = False
         if self.dref is None:
             print(f"{NAME} {VERSION}::FDRData.writable: {self.dataref} no dref")
-            return False
-        return xp.canWriteDataRef(self.dref)
+            return r
+        try:
+            r = xp.canWriteDataRef(self.dref)
+        except Exception as e:
+            print(f"{NAME} {VERSION}::FDRData.writable: {self.name} {self.dataref} exception: {e}")
+        return r
 
     @property
     def value_length(self) -> int:
@@ -573,7 +578,7 @@ class AirbusFlightPhase:
         chocks: AirbusFBW/Chocks
         fdr_data:
           - name: ground_speed
-            dataref: sim/flightmodel/position/groundspeed
+            dataref: sim/flightmodel2/position/groundspeed
             unit: m/s
           - name: ecam_flight_phase
             dataref: AirbusFBW/ECAMFlightPhase
@@ -621,7 +626,7 @@ class AirbusFlightPhase:
             "AirbusFBW/ECAMFlightPhase",  # ecam_flight_phase, not formally required, but used to test ToLiss
             "AirbusFBW/EngineThrust_N",  # eng_pwr
             "sim/cockpit2/switches/avionics_power_on",  # elec_pwr
-            "sim/flightmodel/position/groundspeed",  # ground_speed
+            "sim/flightmodel2/position/groundspeed",  # ground_speed
             "sim/flightmodel2/position/y_agl",  # ABGL
         ]
         valid_list = [k.dataref for k in self.datarefs.values()]
@@ -1645,7 +1650,7 @@ class PythonInterface:
 
         # FDR Info
         if len(self.fdr_info) > 0:
-            for d in self.fdr_info:
+            for d in self.fdr_info.values():
                 if d.dref is None:
                     self.debug(f"start_situation: dataref {d} not found", force=True)
                     self.fdr_comment_line(f"INFO dataref {d} not found")
