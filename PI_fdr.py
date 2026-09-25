@@ -123,9 +123,9 @@ FDR_PLUGIN_SIGNATURE = "com.xppython3.fdr"
 # Default values
 FDR_PREFERENCE_FILE = "fdr.prf"
 FDR_VERSION = 4  # 3 or 4
-FDR_ARCH = "APPLE"  # "APPLE" or "IBM"
+FDR_ARCH = "A"  # APPLE or "I" IBM
 
-SHOW_TRACE = False
+SHOW_TRACE = True
 WRITE_FREQUENCY = 10.0  # seconds
 REPORT_FREQUENCY = 100  # number of writes before logging
 AUTOSTART = True
@@ -366,7 +366,8 @@ class FDRData:
         try:
             r = xp.canWriteDataRef(self.dref)
         except Exception as e:
-            print(f"{NAME} {VERSION}::FDRData.writable: {self.name} {self.dataref} exception: {e}")
+            if SHOW_TRACE:
+                print(f"{NAME} {VERSION}::FDRData.writable: {self.name} {self.dataref} exception: {e}")
         return r
 
     @property
@@ -425,7 +426,9 @@ class FDRData:
         try:
             v = self.dref.value
             if self.is_array:
-                if "[0]" in self.dataref:  # bug XPPython3, returns while array for a[0] instead of scalar value
+                varr = xp.VERSION.split(".")
+                buggy = int(varr[0]) <= 4 and int(varr[1]) < 8
+                if buggy and "[0]" in self.dataref:  # bug XPPython3, returns while array for a[0] instead of scalar value
                     print(f"{NAME} {VERSION}::FDRData.value: workaround for index 0 of array ({self.dataref}={v[0]} (xppython3={xp.VERSION})")
                     v = v[0]
                 elif isinstance(v, (list, tuple)):
@@ -544,7 +547,7 @@ A1500FT = 1500 * 0.3048  # m
 A800FT = 800 * 0.3048  # m
 MIN_ABGL = 10.0  # m, must take into account aircraft CG elev ABGL, make higher for A380
 ENG_PWR = 1500  # Thrust in N to assume engine to power
-ENG_OFF = 10  # Thrust in N, minimal to assume engine started
+ENG_OFF = 100  # Thrust in N, minimal to assume engine started
 FIVEMIN = 300.0  # secs
 
 
@@ -1409,8 +1412,10 @@ class PythonInterface:
             self.debug(f"install_preferences: installing {desc}..", force=True)
 
         self.arch = newprefs.get("fdr_arch", FDR_ARCH)
-        if self.arch not in [FDR_ARCH, "IBM"]:
+        if len(self.arch) < 1 or self.arch[0] not in [FDR_ARCH, "I"]:
             self.arch = FDR_ARCH
+        else:
+            self.arch = self.arch[0]
 
         AIRBUSPHASE = newprefs.get("airbus", False)
         AUTOSTART = newprefs.get("autostart", True)
@@ -1660,7 +1665,7 @@ class PythonInterface:
         if self.file is not None:
             try:
                 good = ''.join(c for c in text if c.isprintable() or c == "\n" or c == "\r")
-                print(good, end="\n" if self.arch == FDR_ARCH[0] else "\r\n", flush=True, file=self.file)
+                print(good, end="\n" if self.arch == FDR_ARCH else "\r\n", flush=True, file=self.file)
             except Exception as e:
                 self.debug(f"_write: exception: {e}", force=True)
                 l = [ord(c) for c in text]
@@ -1720,7 +1725,7 @@ class PythonInterface:
                 self.fdr_comment_line(f"OOOI {o.name} {t.isoformat()}" + (f" ({c})" if c is not None else ""))
 
     def fdr_header_lines(self):
-        print(f"{FDR_ARCH[0]}\r{FDR_VERSION}\n", file=self.file)
+        print(f"{self.arch}\r{FDR_VERSION}\n", file=self.file)
 
         # Script info, use local time
         self.fdr_comment_line(f"created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")

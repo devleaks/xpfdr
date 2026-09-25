@@ -47,10 +47,7 @@ Note: On A340, it might be necessary to collect `AirbusFBW/EngineThrust_N[0:4]`.
 
 # Datarefs Of Interest
 
-TBD
-
-
-## Dataref with Value
+## Dataref Value
 
 TBD
 
@@ -58,3 +55,4 @@ TBD
 ## Commands
 
 TBD
+
