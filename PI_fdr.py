@@ -60,7 +60,7 @@ CHANGELOG
 1.6.0 20-SEP-2026 First distribuable release with viewer
 1.6.1 21-SEP-2026 Drop support to generate older file, generate A or I
 1.7.0 23-SEP-2026 Allow for chart specification in FDRData
-
+1.8.0 25-SEP-2026 Start and stop FDR on Airbus logic
 
 """
 
@@ -111,7 +111,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "1.7.1"
+VERSION = "1.8.0"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -612,6 +612,7 @@ class AirbusFlightPhase:
         self._inited = False
         self._initial_phase = None
         self.current = FlightPhase(phase=AIRBUS_PHASE.OFF, when=dt)
+        self.reason = ""
 
         if not self.valid:
             self.debug("invalid, may be some dataref missing?", force=True)
@@ -777,6 +778,30 @@ class AirbusFlightPhase:
             self.debug(f"get_value: dataref {name} not found", force=True)
             return default
         return d.value
+
+    def should_turn_on(self, current_time):
+        # On the ground for five minutes following electrical power
+        self.reason = "not 5 minutes after last engine shutdown"
+        if self.current.phase == AIRBUS_PHASE.ELECPOWER:
+            self.reason = "powered less than 5 mintues ago"
+            return (current_time - self.current.when).total_seconds() < 300;
+        if self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN:
+            self.reason = "less than 5 minutes after last engine shutdown"
+            return (current_time - self.current.when).total_seconds() > 300;
+        return self.current.phase != AIRBUS_PHASE.FIVEMINAFTER
+
+    def can_turn_off(self, current_time):
+        self.reason = "5 minutes after last engine shutdown"
+        if self.current.phase == AIRBUS_PHASE.FIVEMINAFTER:
+            return True
+        # On the ground for five minutes following electrical power
+        if self.current.phase == AIRBUS_PHASE.ELECPOWER:
+            self.reason = "5 minutes after elec power on"
+            return (current_time - self.current.when).total_seconds() > 300;
+        # The CVR and DFDR both automatically stop five minutes after the last engine is shut down
+        if self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN:
+            return (current_time - self.current.when).total_seconds() > 300;
+        return False
 
     @property
     def ecam_flight_phase(self) -> int:
@@ -1428,7 +1453,7 @@ class PythonInterface:
         opts = newprefs.get("fdr_info", {})
         if len(opts) > 0:
             if len(self.fdr_info) > 1:
-                self.debug(f"uninstalling {len(self.fdr_info)} info datarefs", force=True)
+                self.debug(f"install_preferences: uninstalling {len(self.fdr_info)} info datarefs", force=True)
             self.fdr_info = {}
             for d in opts:
                 f = FDRData(**d)
@@ -1455,7 +1480,7 @@ class PythonInterface:
 
         self.prefs = newprefs
         if desc is not None:
-            self.debug(f"..{desc} installed", force=True)
+            self.debug(f"install_preferences: ..{desc} installed", force=True)
 
         # ################################################
         #
@@ -1551,9 +1576,15 @@ class PythonInterface:
         return self.supervisorFL is not None
 
     def supervisor(self, elapsedSinceLastCall, elapsedTimeSinceLastFlightLoop, counter, inRefcon):
+        # The CVR and DFDR are energized automatically during the following conditions:
+        #   - On the ground for five minutes following electrical power.
+        #   - On the ground continuously with at least one engine running.
+        #   - Continuously in flight regardless if engines are operating.
+        #   - The CVR and DFDR both automatically stop five minutes after the last engine is shut down.
         try:
             if self.need_delayed_init:
                 self.delayed_init()
+
             self.collect_navaids()
             self.estimated_state = self.flight_status
             if self.replay_mode and self.recorder_running:
@@ -1561,6 +1592,25 @@ class PythonInterface:
                 self.stop_recording()
                 self.close_fdr_file()
                 self.debug("supervisor: ..FDR stopped", force=True)
+
+            # ################################################
+            #
+            # If using Airbus logic:
+            if self._afp is not None and self._afp.valid:
+                if self.recorder_running:
+                    if self._afp.can_turn_off(self.simulator_zulu_datetime):
+                        self.stop_recording()
+                        self.close_fdr_file()
+                        self.debug(f"supervisor: ..FDR stopped (Airbus logic {self._afp.reason})", force=True)
+                else:
+                    if self._afp.should_turn_on(self.simulator_zulu_datetime):
+                        outfile = self.open_fdr_file()
+                        self.start_recording()
+                        self.debug(f"supervisor: ..started (Airbus logic {self._afp.reason}), saving FDR into {outfile}", force=True)
+                return AUTOSTART_FREQUENCY
+            #
+            # ################################################
+
             if self.estimated_state in [FLIGHT.MOVING_ON_GROUND, FLIGHT.IN_AIR] and not self.recorder_running:  # toggle ON
                 if self.replay_mode:
                     self.debug("supervisor: replay mode detected, no start", force=True)
@@ -1586,7 +1636,7 @@ class PythonInterface:
     def start_supervisor(self):
         if self.supervisorFL is None:
             self.supervisorFL = xp.createFlightLoop(callback=self.supervisor, phase=xp.FlightLoop_Phase_AfterFlightModel, refCon=self.refSupervisor)
-            xp.scheduleFlightLoop(self.supervisorFL, AUTOSTART_FREQUENCY, 1)
+            xp.scheduleFlightLoop(self.supervisorFL, 1, 1)
             self.debug("start_supervisor: started", force=True)
 
     def stop_supervisor(self):
@@ -1872,11 +1922,11 @@ class PythonInterface:
             self.fdr_comment_line(f"{c}")
 
     def logCommandExecution(self, commandRef, phase, refcon):
-        RECORD_PHASE = [2]
+        RECORD_PHASE = [2]   # [0, 1, 2]
         if phase in RECORD_PHASE:
             c = Command(name=refcon["command"], before=refcon["before"], phase=phase, index=self.writes, when=self.simulator_zulu_datetime.isoformat())
             self.commandExecs.append(c)
-            self.debug(f"logCommandExecution: {c}")
+            self.debug(f"logCommandExecution: added {c}")
             if WRITE_ASAP:
                 self.fdr_comment_line(f"{c}")
         return 1
@@ -1893,7 +1943,7 @@ class PythonInterface:
                     self.debug(f"start_command_logging: installed {c}")
                 else:
                     del self.commandRefs[c]
-            self.debug(f"start_command_logging: logging {len(self.commandRefs)} command", force=True)
+            self.debug(f"start_command_logging: logging execution of {len(self.commandRefs)} commands", force=True)
 
     def stop_command_logging(self):
         if len(self.commandRefs) > 0:
@@ -1904,4 +1954,4 @@ class PythonInterface:
                     # xp.unregisterCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c+"A"])
                     # self.debug(f"stop_command_logging: uninstalled {c+"A"}")
             self.commandRefs = {}
-            self.debug("stop_command_logging: done", force=True)
+            self.debug("stop_command_logging: stopped", force=True)
