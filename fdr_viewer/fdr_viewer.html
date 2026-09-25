@@ -79,13 +79,14 @@ CHANGELOG
 1.6.0 20-SEP-2026 First distribuable release with viewer
 1.7.0 23-SEP-2026 Allow for chart grouping
 1.8.0 24-SEP-2026 Attempt to display timeline of execution of commands with ChartJS
+1.8.1 25-SEP-2026 Now display timeline of execution of commands with ChartJS, no added package
 
 TO DO
   - Add buttons to zoom on take-off or landing. (from OOOI)
 
 */
 
-const VERSION = "1.8.0"
+const VERSION = "1.8.1"
 
 // File types for FDR: GeoJSON
 const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", "text/csv", ""]
@@ -1126,7 +1127,7 @@ function buildSpeedAltChart() {
             },
             scales: {
                 x: {
-                  type: "timeseries",
+                  type: "time",
                 },
                 y: {
                     type: "linear",
@@ -1321,7 +1322,7 @@ function addChart(title, datasets) {
             },
             scales: {
                 x: {
-                  type: "timeseries",
+                  type: "time",
                 },
             },
             plugins: {

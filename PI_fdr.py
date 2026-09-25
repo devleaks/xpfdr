@@ -111,7 +111,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "1.8.0"
+VERSION = "1.8.1"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -590,6 +590,8 @@ class AirbusFlightPhase:
           - name: eng_pwr
             dataref: AirbusFBW/EngineThrust_N
     """
+    FAST_ACQUISITON = 0.5  # secs
+    NORMAL_ACQUISTION = 1.0  # secs
 
     def __init__(self, dt: datetime, datarefs: dict, alt_reg: Callable, spd_reg: Callable, airtime: Callable) -> None:
         self.AIRBUS_PROCESS = {
@@ -640,6 +642,10 @@ class AirbusFlightPhase:
             self.debug(f"{valid_list}", force=True)
             return False
         return True
+
+    @property
+    def ecam_flight_phase(self) -> int:
+        return self.get_value("ecam_flight_phase", -1)
 
     def speed_regression_reliable(self) -> bool:
         r, e, cnt, diff = self.speed_lr()
@@ -782,7 +788,9 @@ class AirbusFlightPhase:
             return default
         return d.value
 
-    def should_turn_on(self, current_time):
+    #
+    # OPERATION
+    def should_turn_on(self, current_time: datetime) -> bool:
         # On the ground for five minutes following electrical power
         self.reason = "not 5 minutes after last engine shutdown"
         if self.current.phase == AIRBUS_PHASE.ELECPOWER:
@@ -791,25 +799,33 @@ class AirbusFlightPhase:
         if self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN:
             self.reason = "less than 5 minutes after last engine shutdown"
             return (current_time - self.current.when).total_seconds() > 300;
+        self.reason = "one engine started"
         return self.current.phase != AIRBUS_PHASE.FIVEMINAFTER
 
-    def can_turn_off(self, current_time):
+    def can_turn_off(self, current_time: datetime) -> bool:
         self.reason = "5 minutes after last engine shutdown"
+        # More than 5 minutes after last engine shutdown
         if self.current.phase == AIRBUS_PHASE.FIVEMINAFTER:
             return True
+        # The CVR and DFDR both automatically stop five minutes after the last engine is shut down
+        if self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN:
+            return (current_time - self.current.when).total_seconds() > 300;
         # On the ground for five minutes following electrical power
         if self.current.phase == AIRBUS_PHASE.ELECPOWER:
             self.reason = "5 minutes after elec power on"
             return (current_time - self.current.when).total_seconds() > 300;
-        # The CVR and DFDR both automatically stop five minutes after the last engine is shut down
-        if self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN:
-            return (current_time - self.current.when).total_seconds() > 300;
         return False
 
-    @property
-    def ecam_flight_phase(self) -> int:
-        return self.get_value("ecam_flight_phase", -1)
+    def recommended_frequency(self, default: float | None = None) -> float:
+        if default is None or default <= 0.0 or type(default) != float:
+            default = AirbusFlightPhase.NORMAL_ACQUISTION
+        if self.current.phase in [AIRBUS_PHASE.ACCEL80KT, AIRBUS_PHASE.LIFTOFF, AIRBUS_PHASE.DECEL80KT, AIRBUS_PHASE.TOUCHDOWN]:
+            return AirbusFlightPhase.FAST_ACQUISITON
+        else:
+            return default
 
+    #
+    # STATE CHANGE
     def test_elecpwr(self) -> bool:
         self.debug(f"test_elecpwr: {self.get_value('elec_pwr', 0)}")
         return self.get_value("elec_pwr", 0) == 1
@@ -891,6 +907,8 @@ class AirbusFlightPhase:
         self.debug(f"test_off: {self.get_value('elec_pwr', 1)}")
         return self.get_value("elec_pwr", 1) == 0
 
+    #
+    # REPORTING
     def save(self, file):
         # On file close, Writes encountered navaids to FDR as comments
         for ph in self._sequence:
@@ -959,9 +977,9 @@ class PythonInterface:
         self.err_lst = None
 
         # Can be changed in preferences
+        self._frequency = WRITE_FREQUENCY
         self.last_acf = ""
         self.arch = FDR_ARCH
-        self.frequency = WRITE_FREQUENCY
         self.report_frequency = REPORT_FREQUENCY
         self.fdr_info = {}
         self.fdr_data = {}
@@ -976,6 +994,16 @@ class PythonInterface:
     def all_navaid_freqs(self) -> List[FDRData]:
         # all datarefs to collect at each iteration
         return self.navaid_freqs + self.navaid_freqs_optional
+
+    @property
+    def frequency(self):
+        if self._afp is not None and self._afp.valid:
+            return self._afp.recommended_frequency(default=self._frequency)
+        return self._frequency
+
+    @frequency.setter
+    def frequency(self, frequency):
+        self._frequency = frequency
     #
     # ERROR and MISBEHAVIOR
     #
@@ -1729,6 +1757,7 @@ class PythonInterface:
 
         # Script info, use local time
         self.fdr_comment_line(f"created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
+        self.fdr_comment_line(f"X-Plane {xp.getVersions()}, XPPython3 {xp.VERSION}\n")
 
         # FDR Meta data
         self.fdr_write_line(f"ACFT, {self.header.get('ACFT').value}")
@@ -1832,10 +1861,9 @@ class PythonInterface:
                 if self._afp is not None:
                     self._afp.save(file=self.file)
                 self.fdr_new_line()
-                self.fdr_new_line()
-                self.fdr_comment_line(f"end recording on {self.system_now_datetime.isoformat()} ({self.writes} writes)")
-                self.fdr_comment_line(f"created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
-            self.debug(f"stop_recording: stopped at {self.start_time.isoformat()}")
+                st = self.simulator_zulu_datetime.isoformat()
+                self.fdr_comment_line(f"end recording on {self.system_now_datetime.isoformat()}, {self.writes} writes (sim time={st})")
+            self.debug(f"stop_recording: stopped at {self.simulator_zulu_datetime}")
 
     #
     # NAVAIDS
