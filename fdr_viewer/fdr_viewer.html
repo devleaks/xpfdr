@@ -33,6 +33,9 @@
           justify-content: center;
           align-items: center;
         }
+        #timeline_c {
+            height: 200px;
+        }
         #footer {
             bottom: 0px;
             color: #ddd;
@@ -56,6 +59,9 @@
         <!-- additional charts will come here -->
         <!-- <canvas id="chart#" class="chart"></canvas> -->
     </div>
+    <div id="timeline_c">
+        <canvas id="timeline"></canvas>
+    </div>
     <div id=footer>
         Map by <a href="https://leafletjs.com">Leaflet</a>,
         charts by <a href="https://www.chartjs.org">ChartJS</a>,
@@ -72,13 +78,14 @@ CHANGELOG
 1.5.0 18-SEP-2026 Refinements, dark mode, better tooltip, etc.
 1.6.0 20-SEP-2026 First distribuable release with viewer
 1.7.0 23-SEP-2026 Allow for chart grouping
+1.8.0 24-SEP-2026 Attempt to display timeline of execution of commands with ChartJS
 
 TO DO
   - Add buttons to zoom on take-off or landing. (from OOOI)
 
 */
 
-const VERSION = "1.7.0"
+const VERSION = "1.8.0"
 
 // File types for FDR: GeoJSON
 const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", "text/csv", ""]
@@ -871,6 +878,9 @@ function buildMap(text, filetype) {
         container.appendChild(div);
     }
     buildOtherCharts();
+    if (commandFeatures.length > 0) {
+        buildTimeline(commandFeatures);
+    }
 }
 
 // CHARTS
@@ -918,6 +928,30 @@ function optimizeChartLayout(numdata) {
 }
 
 function chartColor(idx) {
+    const BORDER_COLORS = [
+        "rgb(54, 162, 235)",
+        "rgb(255, 99, 132)",
+        "rgb(255, 159, 64)",
+        "rgb(255, 205, 86)",
+        "rgb(75, 192, 192)",
+        "rgb(153, 102, 255)",
+        "rgb(201, 203, 207)",
+        "rgb(161, 77, 160)",
+        "rgb(1, 240, 139)",
+        "rgb(255, 44, 44)",
+        "rgb(65, 232, 255)",
+        "rgb(49, 85, 255)",
+        "rgb(212, 88, 255)",
+        "rgb(141, 228, 0)",
+        "rgb(93, 53, 255)",
+        "rgb(4, 133, 117)",
+        "rgb(4, 188, 67)",
+        "rgb(228, 0, 150)",
+        "rgb(106, 191, 203)",
+        "rgb(255, 136, 222)",
+        "rgb(228, 96, 0)",
+    ]
+
     const COLORS = [
         "#e6194b",
         "#3cb44b",
@@ -937,11 +971,13 @@ function chartColor(idx) {
         "#aaffc3",
         "#808000",
         "#ffd8b1",
-        "#000075",
         "#808080",
         "#ffffff",
-        "#000000"
     ];
+
+    if (idx == -1) {
+        idx = Math.floor(Math.random() * COLORS.length);
+    }
     return COLORS[idx % COLORS.length];
 }
 
@@ -1350,6 +1386,79 @@ function addChart(title, datasets) {
         );
     }
     otherCharts[chartId] = new Chart(ctx, config);
+}
+
+function buildTimeline(fc) {
+    let occurences = Array()
+    let cmd_color = {};
+    fc.forEach( (f) => {
+        const c = f.properties.command;
+        if (Object.keys(cmd_color).indexOf(c) == -1) {
+            cmd_color[c] = chartColor(-1);
+        }
+        occurences.push({x: new Date(f.properties["UTC Time"]), y: c});
+    });
+
+    let config = {
+        type: 'line',
+        data: {
+            datasets: [{
+                labels: tlabels,
+                data: occurences,
+                pointBackgroundColor: function(context) {
+                    return cmd_color[context.raw.y];
+                },
+                pointRadius: 6,
+                showLine: false
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            onHover: (e) => {
+                const canvasPosition = Chart.helpers.getRelativePosition(e, timelineChart);
+                // get index for value
+                const value = timelineChart.scales.x.getValueForPixel(canvasPosition.x);
+                const index = timeIndex(value);
+                // console.log("other", chartId, canvasPosition, index);
+                moveMapCursor(index);
+            },
+            plugins: {
+                title: {
+                  display: true,
+                  text: "Command Executions"
+                },
+                legend: {
+                    display: false,
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.parsed.y + context.formattedValue;
+                        }
+                    }
+                },
+            },
+            scales: {
+                x: {
+                    type: "time",
+                    min: tlabels[0],
+                    max: tlabels[tlabels.length - 1]
+                },
+                y: {
+                    type: "category",
+                    ticks: {
+                        color: function(context) {
+                            return cmd_color[context.tick.label];
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    let ctx = document.getElementById("timeline");
+    timelineChart = new Chart(ctx, config);
 }
 
 // CURSOR ANIMATION

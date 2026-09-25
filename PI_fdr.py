@@ -1458,7 +1458,7 @@ class PythonInterface:
         author = self.header.get("AUTH").value
         self.debug(f"install_preferences: {icao} by {author}", force=True)
         if author is not None:
-            author = author.trim().replace(" ", "").lower()
+            author = author.strip().replace(" ", "").lower()
         if AIRBUSPHASE and icao in ["A321", "A21N"] and author in ["glidingkiwi", "toliss"]:
             all_datarefs_by_name = self.header | self.fdr_info | self.fdr_mand | self.fdr_data
             self._afp = AirbusFlightPhase(
