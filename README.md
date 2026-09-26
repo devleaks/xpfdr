@@ -344,7 +344,15 @@ Navaid icons stolen from [Little Navmap](https://albar965.github.io/littlenavmap
 All code by devleaks, a HI. Hence bugs.
 
 
-## Troubleshooting
+# Troubleshooting
+
+## Support
+
+We only provide support for the core functions like data acquisition and FDR reader.
+
+The FDR viewer is considered an addition to the above and is not part of the FDR core function. Efforts will always be made to get the viewer working in sync with the recorder/writer, but with a lower priority.
+
+There are other tools and online applications capable of plotting charts from supplied GeoJSON or CSV data file.
 
 FDR logs a few messages in X-Plane `log.txt` file, especially reports it is working
 and logging events.
@@ -356,5 +364,5 @@ The script will not work on X-Plane release 11 as it depends on newer XPPython3 
 
 # See Also
 
-  - `<X-Plane 12 Folder>/Instruction/FDR Example Version 3.fdr`
-  - `<X-Plane 12 Folder>/Instruction/FDR Example Version 4.fdr`
+  - `<X-Plane 12 Folder>/Instruction/FDR Example Version 4.fdr` (as a reference)
+  - `<X-Plane 12 Folder>/Instruction/FDR Example Version 3.fdr` (for comparison, information)
