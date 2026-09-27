@@ -90,7 +90,6 @@ except ModuleNotFoundError:
 
 # Will try to remove Yaml and favor TOML later
 #
-MM = True
 yaml = False
 missing_modules = []
 try:
@@ -102,6 +101,9 @@ try:
     yaml.default_flow_style = False
 except ModuleNotFoundError:
     missing_modules.append("ruamel.yaml")
+
+# Uncomment to prevent missing module loading (reset to empty array)
+# missing_modules = []
 
 
 # Changelog
@@ -1556,7 +1558,7 @@ class PythonInterface:
                     if yaml:
                         with open(acffile, "r") as fp:
                             prefs = yaml.load(fp)
-                    else
+                    else:
                         self.debug(f"load_acf_preferences: Yaml not installed, using TOML formatted file", force=True)
                         with open(acffile, "rb") as fp:
                             prefs = tomllib.load(fp)
@@ -1597,7 +1599,7 @@ class PythonInterface:
                 if yaml:
                     with open(preffile, "r") as fp:
                         prefs = yaml.load(fp)
-                else
+                else:
                     self.debug(f"load_acf_preferences: Yaml not installed, using TOML formatted file", force=True)
                     with open(preffile, "rb") as fp:
                         prefs = tomllib.load(fp)
