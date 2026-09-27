@@ -1286,7 +1286,7 @@ class PythonInterface:
     def XPluginStart(self) -> tuple[str, str, str]:
         self.debug("XPluginStart: starting..")
 
-        if MM and len(missing_modules) > 0:
+        if len(missing_modules) > 0:
             try:
                 xp_pip.load_packages(missing_modules, "Loading missing modules", "Modules loaded.\nCheck for errors, and RESTART X-Plane.")
                 self.debug(f"XPluginEnable: loaded packages {missing_modules}", force=True)
