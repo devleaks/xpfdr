@@ -61,13 +61,14 @@ CHANGELOG
 1.6.1 21-SEP-2026 Drop support to generate older file, generate A or I
 1.7.0 23-SEP-2026 Allow for chart specification in FDRData
 1.8.0 25-SEP-2026 Start and stop FDR on Airbus logic
+1.8.2 27-SEP-2026 (Re-)Enabled TOML formatted preferences if Yml cannot load
 
 """
 
 import os
 import re
 import math
-# import tomllib
+import tomllib
 from enum import IntEnum
 from dataclasses import dataclass
 from functools import reduce
@@ -89,6 +90,7 @@ except ModuleNotFoundError:
 
 # Will try to remove Yaml and favor TOML later
 #
+MM = True
 yaml = False
 missing_modules = []
 try:
@@ -111,7 +113,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -125,7 +127,7 @@ FDR_PREFERENCE_FILE = "fdr.prf"
 FDR_VERSION = 4  # 3 or 4
 FDR_ARCH = "A"  # APPLE or "I" IBM
 
-SHOW_TRACE = True
+SHOW_TRACE = False
 WRITE_FREQUENCY = 10.0  # seconds
 REPORT_FREQUENCY = 100  # number of writes before logging
 AUTOSTART = True
@@ -796,9 +798,11 @@ class AirbusFlightPhase:
         if self.current.phase == AIRBUS_PHASE.ELECPOWER:
             self.reason = "powered less than 5 mintues ago"
             return (current_time - self.current.when).total_seconds() < 300;
+        # On the ground, 2nd engine shutdown less than 5 minutes ago
         if self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN:
             self.reason = "less than 5 minutes after last engine shutdown"
             return (current_time - self.current.when).total_seconds() > 300;
+        # Should be on for all phases other than FIVEMINAFTER
         self.reason = "one engine started"
         return self.current.phase != AIRBUS_PHASE.FIVEMINAFTER
 
@@ -1280,7 +1284,7 @@ class PythonInterface:
     def XPluginStart(self) -> tuple[str, str, str]:
         self.debug("XPluginStart: starting..")
 
-        if len(missing_modules) > 0:
+        if MM and len(missing_modules) > 0:
             try:
                 xp_pip.load_packages(missing_modules, "Loading missing modules", "Modules loaded.\nCheck for errors, and RESTART X-Plane.")
                 self.debug(f"XPluginEnable: loaded packages {missing_modules}", force=True)
@@ -1433,11 +1437,12 @@ class PythonInterface:
     def install_preferences(self, newprefs: dict) -> bool:
         global AUTOSTOP_THRESHOLD, AUTOSTART, AIRBUSPHASE, SHOW_TRACE
 
-        SHOW_TRACE = newprefs.get("trace", SHOW_TRACE)
-
         desc = newprefs.get("description")
         if desc is not None:
             self.debug(f"install_preferences: installing {desc}..", force=True)
+
+        SHOW_TRACE = newprefs.get("trace", SHOW_TRACE)
+        self.debug("verbose mode", force=SHOW_TRACE)
 
         self.arch = newprefs.get("fdr_arch", FDR_ARCH)
         if len(self.arch) < 1 or self.arch[0] not in [FDR_ARCH, "I"]:
@@ -1547,11 +1552,14 @@ class PythonInterface:
                 acffile = os.path.join(os.path.dirname(acffile), FDR_PREFERENCE_FILE)
                 if os.path.exists(acffile):  # try aircraft-specific pref
                     self.debug(f"load_acf_preferences: aircraft preference file found at {acffile}", force=True)
-                    with open(acffile, "r") as fp:
-                        prefs = yaml.load(fp)
-                    # with open(acffile.replace("yaml", "toml"), "rb") as fp:
-                    #     test = tomllib.load(fp)
-                    #     self.debug(f"TOML >>> {test}")
+                    prefs = {}
+                    if yaml:
+                        with open(acffile, "r") as fp:
+                            prefs = yaml.load(fp)
+                    else
+                        self.debug(f"load_acf_preferences: Yaml not installed, using TOML formatted file", force=True)
+                        with open(acffile, "rb") as fp:
+                            prefs = tomllib.load(fp)
                     if len(prefs) > 0:  # cleanly install prefs
                         was_started = False
                         if self.file is not None:  # close old one
@@ -1585,11 +1593,18 @@ class PythonInterface:
         if os.path.exists(preffile):
             self.debug(f"load_preferences: preference file found at {preffile}", force=True)
             try:
-                with open(preffile, "r") as fp:
-                    prefs = yaml.load(fp)
-                self.install_preferences(prefs)
-                self.debug("load_acf_preferences: preference file loaded")
-                return True
+                prefs = {}
+                if yaml:
+                    with open(preffile, "r") as fp:
+                        prefs = yaml.load(fp)
+                else
+                    self.debug(f"load_acf_preferences: Yaml not installed, using TOML formatted file", force=True)
+                    with open(preffile, "rb") as fp:
+                        prefs = tomllib.load(fp)
+                if len(prefs) > 1:
+                    self.install_preferences(prefs)
+                    self.debug("load_acf_preferences: preference file loaded")
+                    return True
             except Exception as e:
                 self.debug(f"load_preferences: exception: {e}", force=True)
                 self.prefs = {}
