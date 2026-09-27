@@ -594,8 +594,9 @@ class AirbusFlightPhase:
           - name: eng_pwr
             dataref: AirbusFBW/EngineThrust_N
     """
-    FAST_ACQUISITON = 0.5  # secs
-    NORMAL_ACQUISTION = 1.0  # secs
+    FAST_ACQUISITION = 0.5  # secs
+    NORMAL_ACQUISITION = 1.0  # secs
+    CRUIZE_ACQUISITION = 2.0  # secs
 
     def __init__(self, dt: datetime, datarefs: dict, alt_reg: Callable, spd_reg: Callable, airtime: Callable) -> None:
         self.AIRBUS_PROCESS = {
@@ -622,6 +623,7 @@ class AirbusFlightPhase:
         self._initial_phase = None
         self.current = FlightPhase(phase=AIRBUS_PHASE.OFF, when=dt)
         self.reason = ""
+        self.recommended_frequency = 1.0  # AirbusFlightPhase.NORMAL_ACQUISITION
 
         if not self.valid:
             self.debug("invalid, may be some dataref missing?", force=True)
@@ -629,6 +631,7 @@ class AirbusFlightPhase:
             self.debug("valid", force=True)
             self._sequence.append(self.current)
             self.current = self.flight_phase(dt=dt)
+            self.set_frequency()
 
     @property
     def valid(self) -> bool:
@@ -664,7 +667,17 @@ class AirbusFlightPhase:
         if SHOW_TRACE or force:
             print(f"{NAME} {VERSION}::AirbusFlightPhase:{message}")
 
+    def set_frequency(self):
+        before = self.recommended_frequency
+        if self.current.phase in [AIRBUS_PHASE.ABOVE1500FT]:
+            self.recommended_frequency = AirbusFlightPhase.CRUIZE_ACQUISITION
+        if self.current.phase in [AIRBUS_PHASE.ACCEL80KT, AIRBUS_PHASE.LIFTOFF, AIRBUS_PHASE.DECEL80KT, AIRBUS_PHASE.TOUCHDOWN]:
+            self.recommended_frequency = AirbusFlightPhase.FAST_ACQUISITION
+        if before != self.recommended_frequency:
+            self.debug(f"flight_phase: adjusted collection frequency {before} > {self.recommended_frequency}", force=True)
+
     def flight_phase(self, dt: datetime) -> FlightPhase:
+
         def set_inited(message) -> FlightPhase:
             self._initial_phase = self.current
             self._inited = True
@@ -678,12 +691,14 @@ class AirbusFlightPhase:
             self.debug(f"{msg}{self.current.phase.name} > {new_phase.phase.name} at {dt.replace(microsecond=0)}", force=True)
             self._sequence.append(new_phase)
             self.current = new_phase
+            self.set_frequency()
 
         def set_phase(phase: AIRBUS_PHASE, message) -> FlightPhase:
             new_phase = FlightPhase(phase=phase, when=dt)
             self.debug(f"flight_phase/init: SET > {new_phase.phase.name} at {dt.replace(microsecond=0)}", force=True)
             self._sequence.append(new_phase)
             self.current = new_phase
+            self.set_frequency()
             return set_inited(message)
 
         if not self.valid:
@@ -821,14 +836,6 @@ class AirbusFlightPhase:
             self.reason = "5 minutes after elec power on"
             return (current_time - self.current.when).total_seconds() > 300;
         return False
-
-    def recommended_frequency(self, default: float | None = None) -> float:
-        if default is None or default <= 0.0 or type(default) != float:
-            default = AirbusFlightPhase.NORMAL_ACQUISTION
-        if self.current.phase in [AIRBUS_PHASE.ACCEL80KT, AIRBUS_PHASE.LIFTOFF, AIRBUS_PHASE.DECEL80KT, AIRBUS_PHASE.TOUCHDOWN]:
-            return AirbusFlightPhase.FAST_ACQUISITON
-        else:
-            return default
 
     #
     # STATE CHANGE
@@ -1003,9 +1010,7 @@ class PythonInterface:
 
     @property
     def frequency(self):
-        if self._afp is not None and self._afp.valid:
-            return self._afp.recommended_frequency(default=self._frequency)
-        return self._frequency
+        return self._afp.recommended_frequency if self._afp is not None and self._afp.valid else self._frequency
 
     @frequency.setter
     def frequency(self, frequency):
@@ -1535,7 +1540,7 @@ class PythonInterface:
                 dt=self.simulator_zulu_datetime, datarefs=all_datarefs_by_name, alt_reg=self.vertical_lr, spd_reg=self.speed_lr, airtime=self.had_air_time
             )
             if self._afp.valid:
-                self.debug("install_preferences: AirbusFlightPhase enabled", force=True)
+                self.debug("install_preferences: AirbusFlightPhase enabled, supervisor uses Airbus logic", force=True)
             else:
                 self.debug("install_preferences: AirbusFlightPhase invalid, disabled", force=True)
                 self._afp = None

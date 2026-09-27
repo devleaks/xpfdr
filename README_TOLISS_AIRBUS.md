@@ -13,10 +13,10 @@ The CVR and (D)FDR are energized automatically during the following conditions:
   - Continuously in flight regardless if engines are operating.
   - The CVR and DFDR both automatically stop five minutes after the last engine is shut down.
 
+
 # Flight Phase
 
 ![Airbus Flight Phases](https://raw.githubusercontent.com/devleaks/xpfdr/refs/heads/main/fdr_viewer/media/airbus-flight-phases.png)
-
 
 
 ## Collection Dynamic Adjustments
@@ -24,12 +24,12 @@ The CVR and (D)FDR are energized automatically during the following conditions:
 The main purpose of determinating the flight phase is _dynamic collection rate_ adjustment.
 
 Depending on the flight phase, data is collected more or less quickly.
-In particular, during the following two moments:
+In particular, during the following phases:
 
   - between reaching 80kt on takeoff roll until 1500ft is reached
-  - between descending below 800ft and 80kt is reached on landing roll
+  - between descending below 800ft until 80kt is reached on landing roll
 
-During the cruise, data collection rate can be reduced.
+During the cruise, data collection rate is reduced.
 
 Collection rate has no influence of NavAid recording or Command execution detection.
 
