@@ -142,7 +142,7 @@ WRITE_ASAP = True
 
 LINREG_LEN = 10  # number of points in linear regression
 DREF_SUB = "${x}"
-UTC_TIME = "UTC Time" # rendez-vous stringLongues lignes droite
+UTC_TIME = "UTC Time" # rendez-vous string
 
 # Thresholds
 MIN_SPEED = 1.0  # m/s, below that speed is stopped
@@ -2015,7 +2015,6 @@ class PythonInterface:
                     # self.debug(f"stop_command_logging: uninstalled {c+"A"}")
             self.commandRefs = {}
             self.debug("stop_command_logging: stopped", force=True)
-
 
     def save_command_execution(self):
         # On file close, Writes encountered navaids to FDR as comments
