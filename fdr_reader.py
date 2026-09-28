@@ -368,6 +368,7 @@ class FDRReader:
                         "index": c.index,
                         "phase": c.phase,
                         "before": c.before,
+                        "category": c.category
                     },
                 }
             )

@@ -62,6 +62,7 @@ CHANGELOG
 1.7.0 23-SEP-2026 Allow for chart specification in FDRData
 1.8.0 25-SEP-2026 Start and stop FDR on Airbus logic
 1.8.2 27-SEP-2026 (Re-)Enabled TOML formatted preferences if Yml cannot load
+1.8.3 27-SEP-2026 Cleanup, code more robus
 
 """
 
@@ -104,7 +105,7 @@ except ModuleNotFoundError:
 
 # Uncomment to prevent missing module loading (reset to empty array)
 # missing_modules = []
-
+# yaml = False
 
 # Changelog
 
@@ -115,7 +116,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "1.8.2"
+VERSION = "1.8.3"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -485,7 +486,6 @@ class Command:
     index: int
     phase: int
     before: int
-    group: str = "default"
     category: str = "default"
 
 
@@ -998,26 +998,14 @@ class PythonInterface:
         self.fdr_data = {}
         self.navaid_freqs_optional:List[FDRData] = []
 
-    @property
-    def fdr_all_data_values(self) -> List[FDRData]:
-        # all datarefs to collect at each iteration
-        return list(self.fdr_mand.values()) + list(self.fdr_data.values())
-
-    @property
-    def all_navaid_freqs(self) -> List[FDRData]:
-        # all datarefs to collect at each iteration
-        return self.navaid_freqs + self.navaid_freqs_optional
-
-    @property
-    def frequency(self):
-        return self._afp.recommended_frequency if self._afp is not None and self._afp.valid else self._frequency
-
-    @frequency.setter
-    def frequency(self, frequency):
-        self._frequency = frequency
     #
     # ERROR and MISBEHAVIOR
     #
+    def debug(self, message, force: bool = False):
+        # ideal message is function_name: message
+        if SHOW_TRACE or force:
+            print(f"{self.Info}::{message}")
+
     def error(self):
         self.err_cnt += 1
         self.err_lst = datetime.now().astimezone()
@@ -1039,6 +1027,24 @@ class PythonInterface:
     #
     # HELPERS
     #
+    @property
+    def fdr_all_data_values(self) -> List[FDRData]:
+        # all datarefs to collect at each iteration
+        return list(self.fdr_mand.values()) + list(self.fdr_data.values())
+
+    @property
+    def all_navaid_freqs(self) -> List[FDRData]:
+        # all datarefs to collect at each iteration
+        return self.navaid_freqs + self.navaid_freqs_optional
+
+    @property
+    def frequency(self):
+        return self._afp.recommended_frequency if self._afp is not None and self._afp.valid else self._frequency
+
+    @frequency.setter
+    def frequency(self, frequency):
+        self._frequency = frequency
+
     @property
     def chocked(self) -> bool:
         c = self.header.get("CHOK") if self.custom_chocks is None else self.custom_chocks
@@ -1280,11 +1286,6 @@ class PythonInterface:
         # lsystem time in local timezone
         return datetime.now().astimezone().replace(microsecond=0)
 
-    def debug(self, message, force: bool = False):
-        # ideal message is function_name: message
-        if SHOW_TRACE or force:
-            print(f"{self.Info}::{message}")
-
     #
     # XPPYTHON INTERFACE
     #
@@ -1382,11 +1383,6 @@ class PythonInterface:
             else:
                 self.debug(f"XPluginReceiveMessage: received {inMessage}, preference not reloaded")
 
-        # if inMessage != xp.MSG_PLANE_CRASHED:
-        #     self.stop_recording()
-        #     self.close_fdr_file()
-        #     self.debug("XPluginReceiveMessage: PLANE_CRASHED, FDR terminated", force=True)
-
         # if inMessage != xp.MSG_PLANE_UNLOADED:
         #     self.stop_recording()
         #     self.close_fdr_file()
@@ -1441,6 +1437,91 @@ class PythonInterface:
                 else:
                     self.debug(f"delayed_init: failed to init custom chocks dataref {custom_chocks}, using default chocks dataref", force=True)
 
+    def load_acf_preferences(self) -> bool:
+        # Loads aircraft-specific preferences from <X-Plane>/Aircraft/.../aircraft-name/fdr.prf
+        acffile = "-=no file=-"
+        try:
+            acfpath = self.header.get("ACFT").value
+            if acfpath is None:
+                self.debug("load_acf_preferences: no aircraft path", force=True)
+                return False
+
+            if acfpath == self.last_acf:  # DO NOT CHECK IF FILE HAS CHANGED!
+                self.debug("load_acf_preferences: aircraft preference file already loaded")
+                return True
+
+            acffile = os.path.join(xp.getSystemPath(), acfpath)
+            acffile = os.path.join(os.path.dirname(acffile), FDR_PREFERENCE_FILE)
+            if not os.path.exists(acffile):  # try aircraft-specific pref
+                self.debug("load_acf_preferences: no aircraft preference file " + (acffile if SHOW_TRACE else ""))
+                return False
+
+            self.debug(f"load_acf_preferences: aircraft preference file found at {acffile}")
+            prefs = {}
+            if yaml:
+                with open(acffile, "r") as fp:
+                    prefs = yaml.load(fp)
+            else:
+                self.debug("load_acf_preferences: Yaml not installed, using TOML formatted file", force=True)
+                try:
+                    with open(acffile, "rb") as fp:
+                        prefs = tomllib.load(fp)
+                except Exception as e:
+                    self.debug(f"load_acf_preferences: error loading TOML formatted file: {e}", force=True)
+            if len(prefs) > 0:  # cleanly install prefs
+                was_started = self.file is not None
+                if was_started:  # close old one
+                    self.stop_recording()
+                    self.close_fdr_file()
+                    self.debug("load_acf_preferences: FDR stopped for old preferences", force=True)
+                if self.install_preferences(prefs):
+                    self.last_acf = acfpath
+                if was_started:  # open new one
+                    outfile = self.open_fdr_file()
+                    self.start_recording()
+                    self.debug(f"load_acf_preferences: FDR started with new preferences, saving FDR into {outfile}", force=True)
+            self.debug(f"load_acf_preferences: aircraft preference file {acffile} loaded", force=True)
+            return True
+        except Exception as e:
+            self.debug(f"load_acf_preferences: exception: {e}", force=True)
+            self.debug(f"load_acf_preferences: aircraft preference file {acffile} not loaded", force=True)
+        return False
+
+    def load_preferences(self) -> bool:
+        # Loads generic preferences from <X-Plane>/Output/preferences/fdr.prf
+        if self.load_acf_preferences():
+            # self.debug(f"load_preferences: already loaded")
+            return True  # do not load global preferences
+
+        preffile = os.path.join(xp.getSystemPath(), "Output", "preferences", FDR_PREFERENCE_FILE)
+        if not os.path.exists(preffile):
+            if SHOW_TRACE:
+                self.debug(f"load_preferences: no preference file {preffile}")
+            else:
+                self.debug("no preference file", force=True)
+            return False
+
+        self.debug(f"load_preferences: preference file found at {preffile}", force=True)
+        try:
+            prefs = {}
+            if yaml:
+                with open(preffile, "r") as fp:
+                    prefs = yaml.load(fp)
+            else:
+                self.debug("load_preferences: Yaml not installed, using TOML formatted file", force=True)
+                try:
+                    with open(preffile, "rb") as fp:
+                        prefs = tomllib.load(fp)
+                except Exception as e:
+                    self.debug(f"load_preferences: error loading TOML formatted file: {e}", force=True)
+            if len(prefs) > 0 and self.install_preferences(prefs):
+                self.debug(f"load_preferences: preference file {preffile} loaded", force=True)
+                return True
+        except Exception as e:
+            self.debug(f"load_preferences: exception: {e}", force=True)
+            self.debug(f"load_preferences: preference file {preffile} not loaded", force=True)
+        return False
+
     def install_preferences(self, newprefs: dict) -> bool:
         global AUTOSTOP_THRESHOLD, AUTOSTART, AIRBUSPHASE, SHOW_TRACE
 
@@ -1458,6 +1539,7 @@ class PythonInterface:
             self.arch = self.arch[0]
 
         AIRBUSPHASE = newprefs.get("airbus", False)
+
         AUTOSTART = newprefs.get("autostart", True)
         if not AUTOSTART and self.supervisor_running:
             self.stop_supervisor()
@@ -1510,6 +1592,7 @@ class PythonInterface:
         cmds = newprefs.get("commands", {})
         if len(cmds) > 0:
             self.commands = cmds
+            self.debug(f"install_preferences: added {len(self.commands)} commands to monitor", force=True)
 
         # navaid frequencies
         opts = newprefs.get("navaid_freqs_optional", {})
@@ -1529,6 +1612,8 @@ class PythonInterface:
 
         # ################################################
         #
+        # AIRBUS FLIGHT PHASE
+        #
         icao = self.header.get("ICAO").value
         author = self.header.get("AUTH").value
         self.debug(f"install_preferences: {icao} by {author}", force=True)
@@ -1547,81 +1632,6 @@ class PythonInterface:
         #
         # ################################################
         return True
-
-    def load_acf_preferences(self) -> bool:
-        try:
-            acfpath = self.header.get("ACFT").value
-            if acfpath is not None and acfpath == self.last_acf:  # DO NOT CHECK IF FILE HAS CHANGED!
-                self.debug("load_acf_preferences: aircraft preference file already loaded")
-                return True
-            if acfpath is not None:
-                acffile = os.path.join(xp.getSystemPath(), acfpath)
-                acffile = os.path.join(os.path.dirname(acffile), FDR_PREFERENCE_FILE)
-                if os.path.exists(acffile):  # try aircraft-specific pref
-                    self.debug(f"load_acf_preferences: aircraft preference file found at {acffile}", force=True)
-                    prefs = {}
-                    if yaml:
-                        with open(acffile, "r") as fp:
-                            prefs = yaml.load(fp)
-                    else:
-                        self.debug(f"load_acf_preferences: Yaml not installed, using TOML formatted file", force=True)
-                        with open(acffile, "rb") as fp:
-                            prefs = tomllib.load(fp)
-                    if len(prefs) > 0:  # cleanly install prefs
-                        was_started = False
-                        if self.file is not None:  # close old one
-                            was_started = True
-                            self.stop_recording()
-                            self.close_fdr_file()
-                            self.debug("load_acf_preferences: FDR stopped for old preferences", force=True)
-                        self.install_preferences(prefs)
-                        self.last_acf = acfpath
-                        if was_started:  # open new one
-                            outfile = self.open_fdr_file()
-                            self.start_recording()
-                            self.debug(f"load_acf_preferences: FDR started with new preferences, saving FDR into {outfile}", force=True)
-                    self.debug("load_acf_preferences: aircraft preference file loaded")
-                    return True
-                else:
-                    if SHOW_TRACE:
-                        self.debug(f"load_acf_preferences: no aircraft preference file {acffile}")
-                    else:
-                        self.debug("no aircraft preference file")
-        except Exception as e:
-            self.debug(f"load_acf_preferences: exception: {e}", force=True)
-            print_exc()
-        return False
-
-    def load_preferences(self) -> bool:
-        if self.load_acf_preferences():
-            # self.debug(f"load_preferences: already loaded")
-            return True  # do not load global preferences
-        preffile = os.path.join(xp.getSystemPath(), "Output", "preferences", FDR_PREFERENCE_FILE)
-        if os.path.exists(preffile):
-            self.debug(f"load_preferences: preference file found at {preffile}", force=True)
-            try:
-                prefs = {}
-                if yaml:
-                    with open(preffile, "r") as fp:
-                        prefs = yaml.load(fp)
-                else:
-                    self.debug(f"load_acf_preferences: Yaml not installed, using TOML formatted file", force=True)
-                    with open(preffile, "rb") as fp:
-                        prefs = tomllib.load(fp)
-                if len(prefs) > 1:
-                    self.install_preferences(prefs)
-                    self.debug("load_acf_preferences: preference file loaded")
-                    return True
-            except Exception as e:
-                self.debug(f"load_preferences: exception: {e}", force=True)
-                self.prefs = {}
-                return False
-
-        if SHOW_TRACE:
-            self.debug(f"load_preferences: no preference file {preffile}")
-        else:
-            self.debug("no preference file", force=True)
-        return False
 
     #
     # SUPERVISON (auto-start/stop FDR, runs infrequently)
@@ -1726,10 +1736,10 @@ class PythonInterface:
     def fdr_new_line(self):
         self._write("\n")
 
-    def fdr_write_line(self, text):
+    def fdr_write(self, text):
         self._write(text)
 
-    def fdr_comment_line(self, text):
+    def fdr_comment(self, text):
         self._write("COMM, " + text)
 
     def close_fdr_file(self):
@@ -1743,51 +1753,39 @@ class PythonInterface:
             return
         self.estimated_state = self.flight_status
         self.fdr_new_line()
-        self.fdr_comment_line(f"INFO Flight state {self.estimated_state.name}")
+        self.fdr_comment(f"INFO Flight state {self.estimated_state.name}")
         lat = self.fdr_mand.get("latitude").value
         lon = self.fdr_mand.get("longitude").value
         alt = self.fdr_mand.get("agl").value
         hdg = self.fdr_mand.get("heading").value
         spd = self.fdr_mand.get("gs").value
-        self.fdr_comment_line(f"INFO lat={lat}, lon={lon}, alt={alt}, hdg={hdg}, speed={spd}")
-        self.fdr_comment_line(f"INFO supervisor={AUTOSTART_FREQUENCY} recorder={self.frequency}")
-        self.fdr_comment_line(f"INFO custom_chocks={self.custom_chocks.dataref if self.custom_chocks is not None else 'none'}")
+        self.fdr_comment(f"INFO lat={lat}, lon={lon}, alt={alt}, hdg={hdg}, speed={spd}")
+        self.fdr_comment(f"INFO supervisor={AUTOSTART_FREQUENCY} recorder={self.frequency}")
+        self.fdr_comment(f"INFO custom_chocks={self.custom_chocks.dataref if self.custom_chocks is not None else 'none'}")
 
         # FDR Info
         if len(self.fdr_info) > 0:
             for d in self.fdr_info.values():
                 if d.dref is None:
                     self.debug(f"start_situation: dataref {d} not found", force=True)
-                    self.fdr_comment_line(f"INFO dataref {d} not found")
+                    self.fdr_comment(f"INFO dataref {d} not found")
                     continue
-                self.fdr_comment_line(f"INFO {d.name}: {d.dataref}={d.value}")
+                self.fdr_comment(f"INFO {d.name}: {d.dataref}={d.value}")
 
-    def save_oooi(self):
-        if all(self.oooi.values()):
-            self.fdr_comment_line("OOOI ----")
-            self.debug("OOOI ----")
-            return
-        for o in OOOI:
-            t = self.oooi[o]
-            c = self.oooi_notes[o]
-            self.debug(f"OOOI {o.name} {t}" + (f" ({c})" if c is not None else ""), force=True)
-            if t is not None:
-                self.fdr_comment_line(f"OOOI {o.name} {t.isoformat()}" + (f" ({c})" if c is not None else ""))
-
-    def fdr_header_lines(self):
+    def fdr_write_header(self):
         print(f"{self.arch}\r{FDR_VERSION}\n", file=self.file)
 
         # Script info, use local time
-        self.fdr_comment_line(f"created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
-        self.fdr_comment_line(f"X-Plane {xp.getVersions()}, XPPython3 {xp.VERSION}\n")
+        self.fdr_comment(f"created by {SCRIPT_NAME} rel. {VERSION} on {self.system_now_datetime.isoformat()}\n")
+        self.fdr_comment(f"X-Plane {xp.getVersions()}, XPPython3 {xp.VERSION}\n")
 
         # FDR Meta data
-        self.fdr_write_line(f"ACFT, {self.header.get('ACFT').value}")
-        self.fdr_write_line(f"TAIL, {self.header.get('TAIL').value}")
-        self.fdr_write_line(f"DATE, {self.simulator_zulu_datetime.strftime("%m/%d/%Y")}")  # MM/DD/YYYY
-        self.fdr_write_line(f"PRES, {round(self.header.get('SEAL').value, 2)}")
-        self.fdr_write_line(f"DISA, {round(self.header.get('DISA').value, 2)}")
-        self.fdr_write_line(f"WIND, {int(self.header.get('WDIR').value)}," + f" {round(self.header.get('WSPD').value, 2)}")
+        self.fdr_write(f"ACFT, {self.header.get('ACFT').value}")
+        self.fdr_write(f"TAIL, {self.header.get('TAIL').value}")
+        self.fdr_write(f"DATE, {self.simulator_zulu_datetime.strftime("%m/%d/%Y")}")  # MM/DD/YYYY
+        self.fdr_write(f"PRES, {round(self.header.get('SEAL').value, 2)}")
+        self.fdr_write(f"DISA, {round(self.header.get('DISA').value, 2)}")
+        self.fdr_write(f"WIND, {int(self.header.get('WDIR').value)}," + f" {round(self.header.get('WSPD').value, 2)}")
 
         # FDR Datarefs
         if len(self.fdr_data) > 0:
@@ -1795,17 +1793,17 @@ class PythonInterface:
             for d in self.fdr_data.values():
                 if d.dref is None:
                     self.debug(f"dataref {d} not found, not monitored", force=True)
-                    self.fdr_comment_line(f"dataref {d} not found, not monitored")
+                    self.fdr_comment(f"dataref {d} not found, not monitored")
                     continue
                 if d.writable:
-                    self.fdr_write_line(f"DREF, {d.dataref}  {d.factor}")
+                    self.fdr_write(f"DREF, {d.dataref}  {d.factor}")
                 else:
-                    self.fdr_write_line(f"DREF, {d.dataref}  {d.factor}  // not writable")
+                    self.fdr_write(f"DREF, {d.dataref}  {d.factor}  // not writable")
 
         # FDRReader meta
         self.fdr_new_line()
         for d in self.fdr_all_data_values:
-            self.fdr_comment_line(f"{d.fun()}")
+            self.fdr_comment(f"{d.fun()}")
 
         # Additional comments
         self.start_situation()
@@ -1821,9 +1819,21 @@ class PythonInterface:
                 for i in d.indices:
                     columns.append(f"{d.name}[{i}]")
         self.fdr_new_line()
-        self.fdr_comment_line(f"{UTC_TIME}, {', '.join(columns)}")
+        self.fdr_comment(f"{UTC_TIME}, {', '.join(columns)}")
         self.fdr_new_line()
         self.debug("FDR header written")
+
+    def fdr_write_oooi(self):
+        if all(self.oooi.values()):
+            self.fdr_comment("OOOI ----")
+            self.debug("OOOI ----")
+            return
+        for o in OOOI:
+            t = self.oooi[o]
+            c = self.oooi_notes[o]
+            self.debug(f"OOOI {o.name} {t}" + (f" ({c})" if c is not None else ""), force=True)
+            if t is not None:
+                self.fdr_comment(f"OOOI {o.name} {t.isoformat()}" + (f" ({c})" if c is not None else ""))
 
     def fdr_data_line(self) -> str:
         def expand(l: list) -> list:
@@ -1840,7 +1850,7 @@ class PythonInterface:
     def record(self, elapsedSinceLastCall, elapsedTimeSinceLastFlightLoop, counter, inRefcon):
         try:
             if self.file is not None:
-                self.fdr_write_line(self.fdr_data_line())
+                self.fdr_write(self.fdr_data_line())
                 self.writes = self.writes + 1
                 self.file.flush()
                 if self.report_frequency > 0 and self.writes % self.report_frequency == 0:
@@ -1858,13 +1868,13 @@ class PythonInterface:
             self.start_time = self.simulator_zulu_datetime
             self.last_stop = None
             self.writes = 0
-            self.fdr_header_lines()
+            self.fdr_write_header()
             if self.recorderFL is None:
                 self.recorderFL = xp.createFlightLoop(callback=self.record, phase=xp.FlightLoop_Phase_AfterFlightModel, refCon=self.refRecorder)
                 xp.scheduleFlightLoop(self.recorderFL, self.frequency, 1)
                 xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 2)
                 st = self.simulator_zulu_datetime.isoformat()
-                self.fdr_comment_line(f"start recording on {self.system_now_datetime.isoformat()} (sim time={st})\n")
+                self.fdr_comment(f"start recording on {self.system_now_datetime.isoformat()} (sim time={st})\n")
                 self.debug(f"start_recording: started at {self.start_time.isoformat()}")
         else:
             self.debug("start_recording: no file, not started", force=True)
@@ -1876,7 +1886,7 @@ class PythonInterface:
             xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 1)
             self.recorderFL = None
             if self.file is not None:
-                self.save_oooi()
+                self.fdr_write_oooi()
                 if not WRITE_ASAP:
                     self.save_command_execution()
                     self.save_navaids()
@@ -1884,7 +1894,7 @@ class PythonInterface:
                     self._afp.save(file=self.file)
                 self.fdr_new_line()
                 st = self.simulator_zulu_datetime.isoformat()
-                self.fdr_comment_line(f"end recording on {self.system_now_datetime.isoformat()}, {self.writes} writes (sim time={st})")
+                self.fdr_comment(f"end recording on {self.system_now_datetime.isoformat()}, {self.writes} writes (sim time={st})")
             self.debug(f"stop_recording: stopped at {self.simulator_zulu_datetime}")
 
     #
@@ -1892,12 +1902,6 @@ class PythonInterface:
     # Record nav aids around the aircraft
     # or pointed by aircraft nav tuned frequencies
     #
-    def save_navaids(self):
-        # On file close, Writes encountered navaids to FDR as comments
-        for n in self.navaids.values():
-            n.navType = n.navType.name
-            self.fdr_comment_line(f"{n}")
-
     def collect_navaids(self):
         if not self.recorder_running:
             return
@@ -1930,7 +1934,7 @@ class PythonInterface:
                     if WRITE_ASAP:
                         nt = c.navType
                         c.navType = c.navType.name
-                        self.fdr_comment_line(f"{c}")
+                        self.fdr_comment(f"{c}")
                         c.navType = nt
                     self.debug(f"collect_navaids: {c}")
 
@@ -1960,30 +1964,31 @@ class PythonInterface:
                             if WRITE_ASAP:
                                 nt = c.navType
                                 c.navType = c.navType.name
-                                self.fdr_comment_line(f"{c}")
+                                self.fdr_comment(f"{c}")
                                 c.navType = nt
                             self.debug(f"collect_navaids: R {freq} {c}")
         except Exception as e:
             self.debug(f"collect_navaids: error {e}")
             print_exc()
 
+    def save_navaids(self):
+        # On file close, Writes encountered navaids to FDR as comments
+        for n in self.navaids.values():
+            n.navType = n.navType.name
+            self.fdr_comment(f"{n}")
+
     #
     # COMMANDS
     # Monitors command execution
     #
-    def save_command_execution(self):
-        # On file close, Writes encountered navaids to FDR as comments
-        for c in self.commandExecs:
-            self.fdr_comment_line(f"{c}")
-
     def logCommandExecution(self, commandRef, phase, refcon):
         RECORD_PHASE = [2]   # [0, 1, 2]
         if phase in RECORD_PHASE:
             c = Command(name=refcon["command"], before=refcon["before"], phase=phase, index=self.writes, when=self.simulator_zulu_datetime.isoformat())
             self.commandExecs.append(c)
-            self.debug(f"logCommandExecution: added {c}")
             if WRITE_ASAP:
-                self.fdr_comment_line(f"{c}")
+                self.fdr_comment(f"{c}")
+            self.debug(f"logCommandExecution: added {c}")
         return 1
 
     def start_command_logging(self):
@@ -2010,3 +2015,10 @@ class PythonInterface:
                     # self.debug(f"stop_command_logging: uninstalled {c+"A"}")
             self.commandRefs = {}
             self.debug("stop_command_logging: stopped", force=True)
+
+
+    def save_command_execution(self):
+        # On file close, Writes encountered navaids to FDR as comments
+        for c in self.commandExecs:
+            self.fdr_comment(f"{c}")
+

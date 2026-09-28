@@ -473,7 +473,8 @@ function parseFDRFile(text) {
                             "UTC Time": params["when"],
                             index: parseInt(params["index"]),
                             phase: parseInt(params["phase"]),
-                            before: parseInt(params["before"])
+                            before: parseInt(params["before"]),
+                            category: params["category"]
                         }
                     };
                     commands.push(d)
