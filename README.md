@@ -217,6 +217,29 @@ It is a lightweight process that has no impact on the frame rate.
 
 When the plugin is installed, this occurs automatically without user interaction.
 
+In summary, if you install XPPython3 plugin and drop this PI_fdr.yp script into it,
+you will have permanent _«black box»_ function all the time.
+Resolution will be minimal (every 10 seconds).
+Data will be minimal as well (lat, lon, alt, speed, heading, pitch, roll).
+
+If you'd like finer resolution and a few more datarefs,
+drop them in a global preference file.
+You will have permanent _«black box»_ function all the time,
+without thinking about it with all data you need,
+at the resolution that allows you to look at it
+with the viewer.
+
+If you want a better flight data recorder, with data important to you,
+collected at a pace that will allow finer analysis,
+create a preference file for your favourite aircraft.
+You will have permanent _«black box»_ function for your favourite aircraft,
+with ability to revive the flights you made.
+
+I started building a preference file for ToLiss airbus aircrafts,
+and will make it available here when it is done.
+I already included a few Airbus black box specifics in the plug in
+when such an aircraft is detected.
+
 
 ### Mandatory Data
 

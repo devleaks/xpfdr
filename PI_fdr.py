@@ -275,7 +275,7 @@ class FDRData:
                 self.dref = find_dataref(whole_dref)
                 self.dataref = whole_dref
                 # print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, {self.pyslice} -> {self.indices})")
-                print(f"{NAME} {VERSION}::FDRData.init: registered {whole_dref}[{self.indices}]) *** EXPERIMENTAL/SLICE")
+                print(f"{NAME} {VERSION}::FDRData.init: registered {whole_dref}{self.indices})")
                 # self.info()
                 return True
             if "[" in whole_dref:
