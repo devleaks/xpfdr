@@ -142,7 +142,7 @@ WRITE_ASAP = True
 
 LINREG_LEN = 10  # number of points in linear regression
 DREF_SUB = "${x}"
-UTC_TIME = "UTC Time" # rendez-vous string
+UTC_TIME = "UTC Time"  # rendez-vous string
 
 # Thresholds
 MIN_SPEED = 1.0  # m/s, below that speed is stopped
@@ -560,12 +560,12 @@ class AIRBUS_PHASE(IntEnum):
     ELECPOWER = 1  # Coffie machine available
     FIRSTENGSTARTED = 2  # Expresso, capuccino possible
     FIRSTENGTOPOWER = 3
-    ACCEL80KT = 4   # super-frequent for take off
+    ACCEL80KT = 4  # super-frequent for take off
     LIFTOFF = 5
     ABOVE1500FT = 6  # reduce progressively for cruise
     BELOW800FT = 7  # super-frequent for approach
     TOUCHDOWN = 8
-    DECEL80KT = 9   # reduce progressively for taxi, parking...
+    DECEL80KT = 9  # reduce progressively for taxi, parking...
     SECONDENGSHUTDOWN = 10
     FIVEMINAFTER = 11
 
@@ -594,6 +594,7 @@ class AirbusFlightPhase:
           - name: eng_pwr
             dataref: AirbusFBW/EngineThrust_N
     """
+
     FAST_ACQUISITION = 0.5  # secs
     NORMAL_ACQUISITION = 1.0  # secs
     CRUIZE_ACQUISITION = 2.0  # secs
@@ -814,11 +815,11 @@ class AirbusFlightPhase:
         self.reason = "not 5 minutes after last engine shutdown"
         if self.current.phase == AIRBUS_PHASE.ELECPOWER:
             self.reason = "powered less than 5 mintues ago"
-            return (current_time - self.current.when).total_seconds() < 300;
+            return (current_time - self.current.when).total_seconds() < 300
         # On the ground, 2nd engine shutdown less than 5 minutes ago
         if self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN:
             self.reason = "less than 5 minutes after last engine shutdown"
-            return (current_time - self.current.when).total_seconds() > 300;
+            return (current_time - self.current.when).total_seconds() > 300
         # Should be on for all phases other than FIVEMINAFTER
         self.reason = "one engine started"
         return self.current.phase != AIRBUS_PHASE.FIVEMINAFTER
@@ -830,11 +831,11 @@ class AirbusFlightPhase:
             return True
         # The CVR and DFDR both automatically stop five minutes after the last engine is shut down
         if self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN:
-            return (current_time - self.current.when).total_seconds() > 300;
+            return (current_time - self.current.when).total_seconds() > 300
         # On the ground for five minutes following electrical power
         if self.current.phase == AIRBUS_PHASE.ELECPOWER:
             self.reason = "5 minutes after elec power on"
-            return (current_time - self.current.when).total_seconds() > 300;
+            return (current_time - self.current.when).total_seconds() > 300
         return False
 
     #
@@ -928,6 +929,7 @@ class AirbusFlightPhase:
             s = "* " if ph == self._initial_phase else ""
             print(f"COMM, Airbus flight phase {ph.phase.name} {s}{ph.when.isoformat()}", file=file)
 
+
 #
 #
 # #############################################################################
@@ -961,7 +963,7 @@ class PythonInterface:
         self.custom_chocks = None
 
         # navaids
-        self.navaid_freqs:List[FDRData] = NAVAID_FREQUENCIES
+        self.navaid_freqs: List[FDRData] = NAVAID_FREQUENCIES
         self.navaids: Dict[str, NavAid] = {}
         self.navaid_counter = 0
 
@@ -996,7 +998,7 @@ class PythonInterface:
         self.report_frequency = REPORT_FREQUENCY
         self.fdr_info = {}
         self.fdr_data = {}
-        self.navaid_freqs_optional:List[FDRData] = []
+        self.navaid_freqs_optional: List[FDRData] = []
 
     #
     # ERROR and MISBEHAVIOR
@@ -1724,7 +1726,7 @@ class PythonInterface:
     def _write(self, text):
         if self.file is not None:
             try:
-                good = ''.join(c for c in text if c.isprintable() or c == "\n" or c == "\r")
+                good = "".join(c for c in text if c.isprintable() or c == "\n" or c == "\r")
                 print(good, end="\n" if self.arch == FDR_ARCH else "\r\n", flush=True, file=self.file)
             except Exception as e:
                 self.debug(f"_write: exception: {e}", force=True)
@@ -1982,7 +1984,7 @@ class PythonInterface:
     # Monitors command execution
     #
     def logCommandExecution(self, commandRef, phase, refcon):
-        RECORD_PHASE = [2]   # [0, 1, 2]
+        RECORD_PHASE = [2]  # [0, 1, 2]
         if phase in RECORD_PHASE:
             c = Command(name=refcon["command"], before=refcon["before"], phase=phase, index=self.writes, when=self.simulator_zulu_datetime.isoformat())
             self.commandExecs.append(c)
@@ -2020,4 +2022,3 @@ class PythonInterface:
         # On file close, Writes encountered navaids to FDR as comments
         for c in self.commandExecs:
             self.fdr_comment(f"{c}")
-

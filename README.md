@@ -7,6 +7,13 @@ Emphasis of this recorder is to collect data and display it in a FDR viewer.
 The primary goal is not to replay the flight, but rather to collect data and look at it.
 
 
+# TL;DR
+
+Flight Data Recorder (FDR) is a X-Plane plugin that records dataref values at regular interval.
+The sim pilot lists datarefs of interest in a _preference file_ together with the frequency of the collection.
+Values are stored in a FDR formatted file.
+
+
 # Usage
 
 The plugin installs a supervisor process that determines if the FDR recording needs to occur.

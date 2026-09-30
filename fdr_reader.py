@@ -194,7 +194,7 @@ class FDRReader:
                             fdrdata.data_index = data_index
                             self.fdr_data[fdrdata.name] = fdrdata
                             print(fdrdata.data_index, fdrdata)
-                            data_index += 1;
+                            data_index += 1
                         except:
                             print("failed to create FDRData, skipped", text)
                             print_exc()
@@ -362,14 +362,7 @@ class FDRReader:
                     "type": "Feature",
                     "id": feature_index,
                     "geometry": features[idx]["geometry"],
-                    "properties": {
-                        "command": c.name,
-                        UTC_TIME: c.when,
-                        "index": c.index,
-                        "phase": c.phase,
-                        "before": c.before,
-                        "category": c.category
-                    },
+                    "properties": {"command": c.name, UTC_TIME: c.when, "index": c.index, "phase": c.phase, "before": c.before, "category": c.category},
                 }
             )
 
