@@ -296,8 +296,7 @@ class FDRData:
             # self.info()
             return self.dref is not None
         except Exception as e:
-            print(f"{NAME} {VERSION}::FDRData.init: {whole_dref} init failed: {e}")
-            print_exc()
+            print(f"{NAME} {VERSION}::FDRData.init: {whole_dref} init failed")
         return False
 
     def info(self):
@@ -812,6 +811,13 @@ class AirbusFlightPhase:
     #
     # OPERATION
     def should_turn_on(self, current_time: datetime) -> bool:
+        if not self._inited:
+            self.reason = "not initialized"
+            return False
+        # On the ground, not powered
+        if self.current.phase == AIRBUS_PHASE.OFF:
+            self.reason = "off"
+            return False
         # On the ground for five minutes following electrical power
         self.reason = "not 5 minutes after last engine shutdown"
         if self.current.phase == AIRBUS_PHASE.ELECPOWER:
@@ -1548,6 +1554,18 @@ class PythonInterface:
             self.debug(f"load_preferences: preference file {preffile} not loaded", force=True)
         return False
 
+    @property
+    def is_airbus(self) -> bool:
+        VALID_ICAO = ["A321", "A21N", "A359", "A319", "A339", "A340"]
+        icao = self.header.get("ICAO").value
+        icao_ok = icao in VALID_ICAO
+        author = self.header.get("AUTH").value
+        if author is not None:
+            author = author.strip().replace(" ", "").lower()
+        author_ok = author in ["glidingkiwi", "toliss"] or "toliss" in author
+        self.debug(f"is_airbus: {icao} ({icao_ok}) by {author} ({author_ok})", force=True)
+        return author_ok and icao_ok
+
     def install_preferences(self, newprefs: dict) -> bool:
         global AUTOSTOP_THRESHOLD, AUTOSTART, AIRBUSPHASE, SHOW_TRACE
 
@@ -1640,12 +1658,7 @@ class PythonInterface:
         #
         # AIRBUS FLIGHT PHASE
         #
-        icao = self.header.get("ICAO").value
-        author = self.header.get("AUTH").value
-        self.debug(f"install_preferences: {icao} by {author}", force=True)
-        if author is not None:
-            author = author.strip().replace(" ", "").lower()
-        if AIRBUSPHASE and icao in ["A321", "A21N"] and author in ["glidingkiwi", "toliss"]:
+        if AIRBUSPHASE and self.is_airbus:
             all_datarefs_by_name = self.header | self.fdr_info | self.fdr_mand | self.fdr_data
             self._afp = AirbusFlightPhase(
                 dt=self.simulator_zulu_datetime, datarefs=all_datarefs_by_name, alt_reg=self.vertical_lr, spd_reg=self.speed_lr, airtime=self.had_air_time

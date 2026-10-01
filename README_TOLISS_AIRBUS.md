@@ -44,6 +44,10 @@ The following dataref need to be collected:
 
 Note: On A340, it might be necessary to collect `AirbusFBW/EngineThrust_N[0:4]`.
 
+Note 2: On FlightFactor A350, the chocks dataref does not exist
+but other necessary datarefs do,
+which makes it possible to use this particular set up with that aircraft as well.
+
 
 # Datarefs Of Interest
 
