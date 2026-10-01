@@ -63,6 +63,7 @@ CHANGELOG
 1.8.0 25-SEP-2026 Start and stop FDR on Airbus logic
 1.8.2 27-SEP-2026 (Re-)Enabled TOML formatted preferences if Yml cannot load
 1.8.3 27-SEP-2026 Cleanup, code more robus
+1.8.4 01-OCT-2026 More robust pref loading
 
 """
 
@@ -116,7 +117,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "1.8.3"
+VERSION = "1.8.4"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -1461,15 +1462,25 @@ class PythonInterface:
             self.debug(f"load_acf_preferences: aircraft preference file found at {acffile}")
             prefs = {}
             if yaml:
-                with open(acffile, "r") as fp:
-                    prefs = yaml.load(fp)
+                try:
+                    self.debug("load_acf_preferences: trying TOML..")
+                    with open(acffile, "rb") as fp:
+                        prefs = tomllib.load(fp)
+                    self.debug("load_acf_preferences: ..TOML succeeded")
+                except:
+                    self.debug("load_acf_preferences: ..TOML failed, trying YAML..")
+                    with open(acffile, "r") as fp:
+                        prefs = yaml.load(fp)
+                    self.debug("load_acf_preferences: ..YAML succeeded")
             else:
-                self.debug("load_acf_preferences: Yaml not installed, using TOML formatted file", force=True)
+                self.debug("load_acf_preferences: Yaml not installed, using Toml formatted file..", force=True)
                 try:
                     with open(acffile, "rb") as fp:
                         prefs = tomllib.load(fp)
                 except Exception as e:
                     self.debug(f"load_acf_preferences: error loading TOML formatted file: {e}", force=True)
+                    return False
+
             if len(prefs) > 0:  # cleanly install prefs
                 was_started = self.file is not None
                 if was_started:  # close old one
@@ -1484,6 +1495,7 @@ class PythonInterface:
                     self.debug(f"load_acf_preferences: FDR started with new preferences, saving FDR into {outfile}", force=True)
             self.debug(f"load_acf_preferences: aircraft preference file {acffile} loaded", force=True)
             return True
+
         except Exception as e:
             self.debug(f"load_acf_preferences: exception: {e}", force=True)
             self.debug(f"load_acf_preferences: aircraft preference file {acffile} not loaded", force=True)
@@ -1491,6 +1503,7 @@ class PythonInterface:
 
     def load_preferences(self) -> bool:
         # Loads generic preferences from <X-Plane>/Output/preferences/fdr.prf
+        # Always loaded on start, so there is no FDR running
         if self.load_acf_preferences():
             # self.debug(f"load_preferences: already loaded")
             return True  # do not load global preferences
@@ -1507,18 +1520,29 @@ class PythonInterface:
         try:
             prefs = {}
             if yaml:
-                with open(preffile, "r") as fp:
-                    prefs = yaml.load(fp)
+                try:
+                    self.debug("load_preferences: trying TOML..")
+                    with open(preffile, "rb") as fp:
+                        prefs = tomllib.load(fp)
+                    self.debug("load_preferences: ..TOML succeeded")
+                except:
+                    self.debug("load_preferences: ..TOML failed, trying YAML..")
+                    with open(preffile, "r") as fp:
+                        prefs = yaml.load(fp)
+                    self.debug("load_preferences: ..YAML succeeded")
             else:
-                self.debug("load_preferences: Yaml not installed, using TOML formatted file", force=True)
+                self.debug("load_preferences: Yaml not installed, using Toml formatted file", force=True)
                 try:
                     with open(preffile, "rb") as fp:
                         prefs = tomllib.load(fp)
                 except Exception as e:
                     self.debug(f"load_preferences: error loading TOML formatted file: {e}", force=True)
+                    return False
+
             if len(prefs) > 0 and self.install_preferences(prefs):
                 self.debug(f"load_preferences: preference file {preffile} loaded", force=True)
                 return True
+
         except Exception as e:
             self.debug(f"load_preferences: exception: {e}", force=True)
             self.debug(f"load_preferences: preference file {preffile} not loaded", force=True)
