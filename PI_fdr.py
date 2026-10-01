@@ -1383,6 +1383,8 @@ class PythonInterface:
         self.load_preferences()
         if AUTOSTART:
             self.start_supervisor()
+        else:
+            self.debug("XPluginEnable: WARNING: no supervisor, no automatic start/stop of recording, no collection of nav aids")
         self._enabled = True
         self.debug("XPluginEnable: ..enabled")
         return 1
