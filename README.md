@@ -127,7 +127,6 @@ fdr_data:
 
  - `commands` is a list of commands, expressed as X-Plane path.
     The execution of any of these command in logged.
-    (This is an experimental feature.)
 
 
 ### Collected _Data Definition_

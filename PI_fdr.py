@@ -64,6 +64,7 @@ CHANGELOG
 1.8.2 27-SEP-2026 (Re-)Enabled TOML formatted preferences if Yml cannot load
 1.8.3 27-SEP-2026 Cleanup, code more robus
 1.8.4 01-OCT-2026 More robust pref loading
+1.8.5 01-OCT-2026 Logging if manual or automatic start
 
 """
 
@@ -486,7 +487,7 @@ class Command:
     index: int
     phase: int
     before: int
-    category: str = "default"
+    category: str = "default"  # used in chart grouping
 
 
 # Collected once for session, displayed in FDR report header
@@ -520,9 +521,11 @@ FDR_DATA = [
     FDRData(name="gs", dataref="sim/flightmodel2/position/groundspeed", unit="m/s"),
     FDRData(name="agl", dataref="sim/flightmodel2/position/y_agl"),
 ]
-# Through preferences, user can define a set of fdr_data datarefs.
 
-# One day, they be part of preferences
+FDR_COMMANDS = ["sim/map/show_current"]  # test
+# Through preferences, user can add a set of fdr_data datarefs or commands to monitor
+
+# Datarefs that contains frequencies to scan for nav aids
 NAVAID_FREQUENCIES = [
     FDRData.new(dataref="sim/cockpit/radios/adf1_freq_hz"),
     FDRData.new(dataref="sim/cockpit/radios/adf2_freq_hz"),
@@ -530,6 +533,7 @@ NAVAID_FREQUENCIES = [
     FDRData.new(dataref="sim/cockpit/radios/nav1_freq_hz"),
     FDRData.new(dataref="sim/cockpit/radios/nav2_freq_hz"),
 ]
+# Through preferences, user can add a set of additional frequencies to scan
 
 
 # #############################################################################
@@ -954,6 +958,7 @@ class PythonInterface:
 
         self.fdrCmdRef = None
         self.menuIdx = None
+        self.manual = False
 
         self.recorderFL = None
         self.refRecorder = "FDR:record"
@@ -964,27 +969,29 @@ class PythonInterface:
         self.file = None
         self.prefs = {}
 
-        self.header = {d.name: d for d in HEADER}  # collected once
-        self.fdr_mand = {d.name: d for d in FDR_DATA}  # mandatory reported values
+        self.header = {d.name: d for d in HEADER}  # collected once, mandatory information for FDR v4 file
+        self.fdr_mand = {d.name: d for d in FDR_DATA}  # mandatory reported values for FDR v4 file
 
-        self.custom_chocks = None
+        self.custom_chocks = None  # for formal OOOI
+
+        self._afp = None  # ToLiss/Airbus specific
 
         # navaids
-        self.navaid_freqs: List[FDRData] = NAVAID_FREQUENCIES
-        self.navaids: Dict[str, NavAid] = {}
-        self.navaid_counter = 0
+        self.navaid_freqs: List[FDRData] = NAVAID_FREQUENCIES  # default frequencies that are scanned
+        self.navaids: Dict[str, NavAid] = {}  # storage of navaids found
+        self.navaid_counter = 0  # to search for different nav aid types at each iteration
 
         # commands
-        self.commands = ["sim/map/show_current"]  # test
+        self.commands = FDR_COMMANDS
         self.commandRefs = {}
         self.commandRefCons = {}
-        self.commandExecs = []
+        self.commandExecs = []  # storage of executions
 
         # Working variables
         self._estimated_state = FLIGHT.UNKNOWN
         self._had_air_time: bool | None = None
-        self.last_agl = 0
-        self.chocks_removed = None
+        self.last_agl = 0.0
+        self.chocks_removed: datetime | None = None
         self.oooi = {i: None for i in range(len(OOOI))}
         self.oooi_notes = {i: None for i in range(len(OOOI))}
         self.start_time = None
@@ -992,8 +999,6 @@ class PythonInterface:
         self.writes = 0
         self.elevs: List[float] = []
         self.speeds: List[float] = []
-
-        self._afp = None  # Experimental, ToLiss/Airbus specific
         self.err_cnt = 0
         self.err_rst = datetime.now().astimezone()
         self.err_lst = None
@@ -1003,9 +1008,10 @@ class PythonInterface:
         self.last_acf = ""
         self.arch = FDR_ARCH
         self.report_frequency = REPORT_FREQUENCY
-        self.fdr_info = {}
-        self.fdr_data = {}
-        self.navaid_freqs_optional: List[FDRData] = []
+
+        self.fdr_info: Dict[str, FDRData] = {}  # optional header information, collected once and displayed in header
+        self.fdr_data: Dict[str, FDRData] = {}  # optional data collected
+        self.navaid_freqs_optional: List[FDRData] = []  # optional datarefs for nav aid frequencies
 
     #
     # ERROR and MISBEHAVIOR
@@ -1295,6 +1301,18 @@ class PythonInterface:
         # lsystem time in local timezone
         return datetime.now().astimezone().replace(microsecond=0)
 
+    @property
+    def is_airbus(self) -> bool:
+        VALID_ICAO = ["A321", "A21N", "A359", "A319", "A339", "A340"]
+        icao = self.header.get("ICAO").value
+        icao_ok = icao in VALID_ICAO
+        author = self.header.get("AUTH").value
+        if author is not None:
+            author = author.strip().replace(" ", "").lower()
+        author_ok = author in ["glidingkiwi", "toliss"] or "toliss" in author
+        self.debug(f"is_airbus: {icao} ({icao_ok}) by {author} ({author_ok})", force=True)
+        return author_ok and icao_ok
+
     #
     # XPPYTHON INTERFACE
     #
@@ -1422,10 +1440,12 @@ class PythonInterface:
             outfile = self.open_fdr_file()
             self.start_recording()
             self.debug(f"fdrCmd: FDR started manually, saving FDR into {outfile}", force=True)
+            self.manual = True
         else:  # toggle OFF
             self.stop_recording()
             self.close_fdr_file()
             self.debug("fdrCmd: FDR stopped manually", force=True)
+            self.manual = True
         return 1
 
     #
@@ -1553,18 +1573,6 @@ class PythonInterface:
             self.debug(f"load_preferences: exception: {e}", force=True)
             self.debug(f"load_preferences: preference file {preffile} not loaded", force=True)
         return False
-
-    @property
-    def is_airbus(self) -> bool:
-        VALID_ICAO = ["A321", "A21N", "A359", "A319", "A339", "A340"]
-        icao = self.header.get("ICAO").value
-        icao_ok = icao in VALID_ICAO
-        author = self.header.get("AUTH").value
-        if author is not None:
-            author = author.strip().replace(" ", "").lower()
-        author_ok = author in ["glidingkiwi", "toliss"] or "toliss" in author
-        self.debug(f"is_airbus: {icao} ({icao_ok}) by {author} ({author_ok})", force=True)
-        return author_ok and icao_ok
 
     def install_preferences(self, newprefs: dict) -> bool:
         global AUTOSTOP_THRESHOLD, AUTOSTART, AIRBUSPHASE, SHOW_TRACE
@@ -1714,25 +1722,30 @@ class PythonInterface:
                 return AUTOSTART_FREQUENCY
             #
             # ################################################
-
             if self.estimated_state in [FLIGHT.MOVING_ON_GROUND, FLIGHT.IN_AIR] and not self.recorder_running:  # toggle ON
                 if self.replay_mode:
                     self.debug("supervisor: replay mode detected, no start", force=True)
                 else:
+                    if self.manual:
+                        self.debug("supervisor: last stop was manual operation")
                     self.debug("supervisor: move detected, starting FDR..", force=True)
                     outfile = self.open_fdr_file()
                     self.start_recording()
                     self.debug(f"supervisor: ..started, saving FDR into {outfile}", force=True)
+                    self.manual = False
             else:  # stop after a 10 minute continuous stopped time out?
                 tdiff = self.how_long_stopped()
                 if tdiff > AUTOSTOP_THRESHOLD and self.recorder_running:
                     self.debug(f"supervisor: stopped for {tdiff} seconds, stopping FDR..", force=True)
+                    if self.manual:
+                        self.debug("supervisor: last start was manual operation")
                     if self.file is not None:
                         self.stop_recording()
                         self.close_fdr_file()
                         self.debug("supervisor: ..FDR stopped", force=True)
                     else:
                         self.debug("supervisor: file aready closed?", force=True)
+                    self.manual = False
         except Exception as e:
             self.debug(f"supervisor: exception: {e}", force=True)
         return AUTOSTART_FREQUENCY
@@ -2059,3 +2072,4 @@ class PythonInterface:
         # On file close, Writes encountered navaids to FDR as comments
         for c in self.commandExecs:
             self.fdr_comment(f"{c}")
+
