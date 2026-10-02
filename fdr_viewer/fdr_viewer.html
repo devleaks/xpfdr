@@ -252,14 +252,13 @@ const DATA_KEYWORDS = [
 
 // Container for data
 class FDRData {
-    constructor(name, dataref, pyslice, _indices, callback, unit, force_datatype, factor, chart) {
+    constructor(name, dataref, pyslice, _indices, callback, unit, factor, chart) {
         this.name = name
         this.dataref = dataref
         this.pyslice = pyslice
         this._indices = _indices
         this.callback = callback
         this.unit = unit
-        this.force_datatype = force_datatype
         this.factor = factor
         this.chart = chart
     }
@@ -434,7 +433,6 @@ function parseFDRFile(text) {
                         params["_indices"],
                         params["callback"],
                         params["unit"],
-                        params["force_datatype"],
                         params["factor"],
                         params["chart"]
                     );
@@ -883,6 +881,9 @@ function buildMap(text, filetype) {
     buildOtherCharts();
     if (commandFeatures.length > 0) {
         buildTimeline(commandFeatures);
+    } else {  // no command execution, hide div
+        let ctx = document.getElementById("timeline");
+        ctx.style.display = "none";
     }
 }
 
@@ -1185,7 +1186,14 @@ function buildSpeedAltChart() {
         resetZoom();
     });
     container.appendChild(button);
-    // container.innerHTML += "&nbsp;"
+    container.innerHTML += "&nbsp;"
+    button = document.createElement("button");
+    button.type ="button";
+    button.innerHTML = "New FDR File";
+    button.addEventListener("click", function() {
+        location.reload();
+    });
+    container.appendChild(button);
 }
 
 function remove(arr, elem) {
