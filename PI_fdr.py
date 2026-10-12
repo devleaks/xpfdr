@@ -39,10 +39,15 @@ PRES, 30.01
 DISA, 0
 WIND, 270,15
 
+COMM UNITS, DECIMAL_DEGREE, DECIMAL_DEGREE, m...
 COMM utc time, lat, lon, alt...
+COMM, start recording on 2026-10-12T19:02:39+02:00 (sim time=2026-10-12T10:58:41.585938+00:00)
+
 12:34:56.789, 2, 3, 4
+...
 
 *By convention*, *penultimate* comment before data contains the header column name (FDRData.name)
+*By convention*, line before above contains units
 (Last comment before contains start of log information.)
 
 CHANGELOG
@@ -65,6 +70,7 @@ CHANGELOG
 1.8.3 27-SEP-2026 Cleanup, code more robus
 1.8.4 01-OCT-2026 More robust pref loading
 1.8.5 01-OCT-2026 Logging if manual or automatic start
+2.0.0 13-OCT-2026 First "public" release
 
 """
 
@@ -452,6 +458,22 @@ class FDRData:
 
 
 class NAVAID_TYPE(IntEnum):
+    UNKNOWN = 0
+    APT = 1
+    NDB = 2
+    VOR = 4
+    ILS = 8
+    LOC = 16
+    GS = 32
+    OM = 64
+    MM = 128
+    IM = 256
+    FIX = 512
+    DME = 1024
+    LATLON = 2048
+    TACAN = 4096
+
+class NAVAID_TYPE_OLD(IntEnum):
     Nav_Unknown = 0
     Nav_Airport = 1
     Nav_NDB = 2
@@ -466,6 +488,7 @@ class NAVAID_TYPE(IntEnum):
     Nav_DME = 1024
     Nav_LatLon = 2048
     Nav_TACAN = 4096
+
 
 
 @dataclass
@@ -1027,6 +1050,7 @@ class PythonInterface:
         self.err_cnt = 0
         self.err_rst = datetime.now().astimezone()
         self.err_lst = None
+        self._last_navaid_id = xp.NAV_NOT_FOUND
 
         # Can be changed in preferences
         self._frequency = WRITE_FREQUENCY
@@ -1492,6 +1516,25 @@ class PythonInterface:
     def need_delayed_init(self) -> bool:
         return self.custom_chocks is None and self.prefs.get("chocks") is not None
 
+    @property
+    def need_soft_reset(self) -> bool:
+        if self.is_airbus and self.custom_chocks is not None:
+            c = self.custom_chocks.value
+            if c is None:
+                self.debug("need_soft_reset: airbus custom chocks is none", force=True)
+                return True
+        icao = self.header.get("ICAO").value
+        author = self.header.get("AUTH").value
+        if icao is None or author is None:
+            self.debug(f"need_soft_reset: {icao} by {author}", force=True)
+            return True
+        return False
+
+    def soft_reset(self):
+        # called when aircraft loaded after plugin
+        self.install_preferences(newprefs=self.prefs)  # no need to restart, they haven't changed
+        self.debug("soft_reset: completed", force=True)
+
     def delayed_init(self):
         if self.custom_chocks is None:
             custom_chocks = self.prefs.get("chocks")
@@ -1738,6 +1781,9 @@ class PythonInterface:
         try:
             if self.need_delayed_init:
                 self.delayed_init()
+
+            if self.need_soft_reset:
+                self.soft_reset()
 
             self.collect_navaids()
 
@@ -2013,21 +2059,14 @@ class PythonInterface:
     #
     def collect_navaids(self):
         # Cycle through registered frequencies and nav aid types; record newly encountered ones
-        if not self.recorder_running:
-            return
-        NAVAID_CYCLE = [xp.Nav_NDB, xp.Nav_Fix, xp.Nav_VOR, xp.Nav_Fix, xp.Nav_DME, xp.Nav_Fix]
-        # ?? sim/cockpit2/radios/actuators/tac1_channel
-        # ?? sim/cockpit2/radios/actuators/tac2_channel
-        try:
-            # do not always search for several types to find more nav aids around
-            lat = self.fdr_mand.get("latitude").value
-            lon = self.fdr_mand.get("longitude").value
-            types = NAVAID_CYCLE[self.navaid_counter % len(NAVAID_CYCLE)]
-            self.navaid_counter += 1
-            navaid = xp.findNavAid(lat=lat, lon=lon, navType=types)
-            if navaid != xp.NAV_NOT_FOUND:
-                d = xp.getNavAidInfo(navaid)
-                k = f"{d.type}:{d.name}"
+        # Notes:
+        #  - NDB frequencies are exact, all others are multiplied by 100
+        def add_navaid(n, f:int | None = None):
+            if n != xp.NAV_NOT_FOUND and n != self._last_navaid_id:   # returns last found if not found...
+                self._last_navaid_id = n
+                d = xp.getNavAidInfo(n)
+                t = NAVAID_TYPE(d.type).name
+                k = f"{t}:{d.navAidID}//{d.name}"
                 if k not in self.navaids:
                     c = NavAid(
                         name=d.name,
@@ -2046,37 +2085,47 @@ class PythonInterface:
                         c.navType = c.navType.name
                         self.fdr_comment(f"{c}")
                         c.navType = nt
-                    self.debug(f"collect_navaids: {c}")
+                    r = f"R {f}" if f is not None else ""
+                    self.debug(f"collect_navaids: {r} {c} (id={navaid},key={k})")
+                    if f is not None and f != d.frequency:
+                        self.debug(f"collect_navaids: {r} != {d.frequency}")
+
+        if not self.recorder_running:
+            return
+
+        NAVAID_CYCLE = [xp.Nav_Airport, xp.Nav_NDB, xp.Nav_Fix, xp.Nav_VOR, xp.Nav_Fix, xp.Nav_DME, xp.Nav_Fix]
+        ALL_TYPES = reduce(lambda r, e: r | e, NAVAID_CYCLE, 0)
+        MAX_RADIUS = 200.0  # km
+
+        # ?? sim/cockpit2/radios/actuators/tac1_channel
+        # ?? sim/cockpit2/radios/actuators/tac2_channel
+        try:
+            # search for several types in turn to find more nav aids around
+            lat = self.fdr_mand.get("latitude").value
+            lon = self.fdr_mand.get("longitude").value
+            types = NAVAID_CYCLE[self.navaid_counter % len(NAVAID_CYCLE)]
+            self.navaid_counter += 1
+            navaid = xp.findNavAid(lat=lat, lon=lon, navType=types)  # returns last found if not found...
+            add_navaid(navaid)
 
             for radio in self.all_navaid_freqs:
                 freq = radio.value
                 if freq is not None:
-                    if freq > 80000:
-                        freq = freq / 100
-                    # navaid = xp.findNavAid(freq=freq)
+                    # Apparently freq is int
+                    # if freq > 80000:
+                    #     freq = freq / 100
+                    # METHOD 1:
                     navaid = xp.findNavAid(lat=lat, lon=lon, freq=freq)
-                    if navaid != xp.NAV_NOT_FOUND:
-                        d = xp.getNavAidInfo(navaid)
-                        k = f"{d.type}:{d.name}"
-                        if k not in self.navaids:
-                            c = NavAid(
-                                name=d.name,
-                                navType=NAVAID_TYPE(d.type),
-                                lat=d.latitude,
-                                lon=d.longitude,
-                                height=d.height,
-                                frequency=d.frequency,
-                                heading=d.heading,
-                                navAidId=d.navAidID,
-                                reg=d.reg,
-                            )
-                            self.navaids[k] = c
-                            if WRITE_ASAP:
-                                nt = c.navType
-                                c.navType = c.navType.name
-                                self.fdr_comment(f"{c}")
-                                c.navType = nt
-                            self.debug(f"collect_navaids: R {freq} {c}")
+                    add_navaid(navaid, freq)
+                    # METHOD 2
+                    # navaid = xp.findNavAid(freq=freq)
+                    # if navaid != xp.NAV_NOT_FOUND and navaid != self._last_navaid_id:   # returns last found if not found...
+                    #     self._last_navaid_id = navaid
+                    #     d = xp.getNavAidInfo(navaid)
+                    #     dist = distance(d.latitude, d.longitude, lat, lon)
+                    #     self.debug(f"collect_navaids: proximity {round(dist, 1)}km, {freq} = {d.frequency}")
+                    #     if dist < MAX_RADIUS:
+                    #         add_navaid(navaid, freq)
         except Exception as e:
             self.debug(f"collect_navaids: error {e}")
             print_exc()
