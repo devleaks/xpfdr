@@ -18,6 +18,8 @@ The CVR and (D)FDR are energized automatically during the following conditions:
 
 ![Airbus Flight Phases](https://raw.githubusercontent.com/devleaks/xpfdr/refs/heads/main/fdr_viewer/media/airbus-flight-phases.png)
 
+[See here.](https://www.aviationhunt.com/airbus-a320-flight-phases/)
+
 
 ## Collection Dynamic Adjustments
 

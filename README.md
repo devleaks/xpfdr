@@ -241,10 +241,13 @@ create a preference file for your favourite aircraft.
 You will have permanent _«black box»_ function for your favourite aircraft,
 with ability to revive the flights you made.
 
-I started building a preference file for ToLiss airbus aircrafts,
-and will make it available here when it is done.
-I already included a few Airbus black box specifics in the plug in
-when such an aircraft is detected.
+
+#### Specifics for ToLiss Airbus
+
+There is a specific set up and behevior for ToLiss Airbus aircrafts.
+It automatically sets up when such an aircraft is detected.
+
+[Please see here for details.](https://github.com/devleaks/xpfdr/blob/main/README_TOLISS_AIRBUS.md)
 
 
 ### Mandatory Data
@@ -334,8 +337,8 @@ If the FDR file has been produced by the plugin,
 it contains additional information and meta data
 that allow for better display of information in the viewer.
 
-  - Collected navaids are displayed,
-  - Moment of execution of monitored commands are also shown.
+  - Collected navaids are displayed on the map,
+  - Moment of executions of monitored commands are shown both on the map and on a specific chart.
 
 If using FDR default values/settings recorded without preference file,
 FDR Viewer display a Flightradar24/Flight Aware type of graph with
