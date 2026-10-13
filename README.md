@@ -2,27 +2,26 @@
 
 Flight Data Recorder is a customizable flight data recording plugin for X-Plane flight simulator.
 It generates X-Plane FDR files from a running flight.
+It records both dataref values and command executions.
 
 Emphasis of this recorder is to collect data and display it in a FDR viewer,
-not to replay the flight.
-
-
-# TL;DR
-
-Flight Data Recorder (FDR) is a X-Plane plugin that records dataref values at regular interval.
-The sim pilot lists datarefs of interest in a _preference file_ together with the frequency of the data collection.
-Values are stored in a FDR formatted file.
+not to replay the flight althought it remains possible to do so.
 
 
 # Usage
 
 The plugin installs a supervisor process that determines if the FDR recording needs to occur.
-Recording automatically starts when aircraft movement is detected,
+
+In its simplest form, recording automatically starts when aircraft movement is detected,
 and stops when there is no aircraft movement for 10 minutes.
 
 Alternatively, it is possible to manually start and stop the recording through the _Start or stop FDR_ Plugin Menu entry.
 An _enabled_ marker (white dot) sits in front of the menu entry when the recorder is running.
+
+![On/Off Marker](https://raw.githubusercontent.com/devleaks/xpfdr/refs/heads/main/fdr_viewer/media/rec.png)
+
 It is possible to bind the _Start or stop FDR_ command to a cockpit or joystick button.
+
 
 When recording, FDR detects and logs nearby navigation aids.
 FDR logs navaids around the aircraft and navaids used by the aircraft
@@ -89,6 +88,14 @@ report_frequency: 100
 chocks: AirbusFBW/Chocks
 commands:
   - sim/map/show_current
+  - name: Caution
+    dataref: sim/annunciator/clear_master_wcaution
+    before: 1
+    phase: [0, 2]
+  - name: Warning
+    dataref: sim/annunciator/clear_master_warning
+    before: 0
+    phase: 2
 fdr_info:
   - name: aircraft_icao
     dataref: sim/aircraft/view/acf_ICAO
@@ -125,7 +132,7 @@ fdr_data:
 
  - `fdr_data` is a list of _Data Definition_ that are collected and reported.
 
- - `commands` is a list of commands, expressed as X-Plane path.
+ - `commands` is a list of commands, expressed as X-Plane path or _Command Definition_ structure.
     The execution of any of these command in logged.
 
 
@@ -137,7 +144,7 @@ Collected data is described by the following fields:
   - `dataref`: Name of dataref, its value is part of the data record. Mandatory.
   - `units`: Information field of dataref value unit. Saved as a comment in the header of the record file.
      Optional but highly recommanded.
-  - `factor`: Convertion factor (float value) used by FDR DREF parameter. Optional.
+  - `factor`: Convertion factor (float value) used by FDR DREF parameter. Optional. *Not* used by FDR.
   - `callback`: Reverse polish notation expression, in which `${x}` is replaced with the dataref value. Optional.
   - `chart` : A hint to group data in the same chart in the viewer. Optional.
     (If the chart name is `no-chart`, the data is not presented in the viewer.)
@@ -157,6 +164,18 @@ In the above expression `${x}` is the raw _numeric_ dataref value.
 
 This scheme is a alternate, more sophisticated method than the built-in FDR DREF factor parameter,
 which remains available as the factor attribute in the Data Definition.
+
+
+### Monitored _Command Definition_
+
+Monitored command is described by the following fields:
+
+  - `name`: Name of the data field, used as a column header in the FDR file. Mandatory.
+  - `dataref`: Name of dataref, its value is part of the data record. Mandatory.
+  - `phase`: Either a single phase or a list of phase to monitor. Default to `2`, command end.
+  - `before`: 0 or 1 to log execution event before or after the execution of the command (default to `1`, after).
+  - `chart` : A hint to group data in the same chart in the viewer. Optional.
+    (If the chart name is `no-chart`, the data is not presented in the viewer.)
 
 
 ### Experimental Feature for Array Datarefs

@@ -448,7 +448,7 @@ function parseFDRFile(text) {
                         },
                         "properties": {
                             name: params["name"].replaceAll('"', ""),
-                            navType: params["navType"].replace("Nav_", ""),
+                            navType: params["navType"],
                             navAidId: params["navAidId"],
                             height: parseFloat(params["height"]).toFixed(1),
                             heading: parseFloat(params["heading"]),

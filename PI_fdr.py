@@ -70,7 +70,10 @@ CHANGELOG
 1.8.3 27-SEP-2026 Cleanup, code more robus
 1.8.4 01-OCT-2026 More robust pref loading
 1.8.5 01-OCT-2026 Logging if manual or automatic start
-2.0.0 13-OCT-2026 First "public" release
+2.0.0 13-OCT-2026 First release
+2.0.1 14-OCT-2026 Refactor command logging
+2.0.2 14-OCT-2026 Now also accept dataref in simpler form (just the dataref)
+2.1.0 13-OCT-2026 First "public" release
 
 """
 
@@ -83,7 +86,7 @@ from dataclasses import dataclass
 from functools import reduce
 from datetime import datetime, timedelta, timezone
 from traceback import print_exc
-from typing import Callable, Any, List
+from typing import Callable, Any, List, Dict
 
 XP_MESSAGE_OF_INTEREST = []
 try:
@@ -124,7 +127,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "1.8.5"
+VERSION = "2.0.2"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -263,9 +266,13 @@ class FDRData:
     dref = None
 
     @classmethod
-    def new(cls, dataref: str):
-        name = dataref[dataref.rindex("/") + 1 :]
-        return cls(name=name, dataref=dataref)
+    def new(cls, config: str | list):
+        if type(config) is str:
+            name = config[config.rindex("/") + 1 :]
+            return cls(name=name, dataref=config)
+        elif type(config) is dict:
+            return cls(**config)
+        return None
 
     def init(self) -> bool:
         # One day, we may accept values like "sim/dataref_array[1,5,7,9]"
@@ -506,12 +513,68 @@ class NavAid:
 
 @dataclass
 class Command:
-    name: str
+    """Records execution of a command"""
+    dataref: str
     when: str
     index: int
-    phase: int
+    phase: list
     before: int
-    category: str = "default"  # used in chart grouping
+    name: str = ""
+    chart: str = "Commands"  # used in chart grouping
+
+
+@dataclass
+class FDRCommand:
+    # Definition of a command collected from the simulator
+    name: str  # Start or stop FD recording
+    dataref: str  # xppython3/fdr/start_stop_toggle
+    phase: int | list = 2  # might be interested in phase 0, 1 or/and 2.
+    before: int = 0
+    dref = None
+    refCon: list | None = None
+    chart: str | None = None  # hint to group data in same chart
+
+    @classmethod
+    def new(cls, config: str | list):
+        if type(config) is str:
+            name = config[config.rindex("/") + 1 :]
+            return cls(name=name, dataref=config)
+        elif type(config) is dict:
+            return cls(**config)
+        return None
+
+    def init(self) -> bool:
+        try:
+            self.dref = xp.findCommand(self.dataref)
+            if type(self.phase) is int:
+                self.phase = [self.phase]
+            self.refCon = {"dataref": self.dataref, "before": self.before, "phase": self.phase}
+            if SHOW_TRACE and self.dref is not None:
+                print(f"{NAME} {VERSION}::FDRCommand.init: {self.dataref} inited")
+            return self.dref is not None
+        except Exception as e:
+            print(f"{NAME} {VERSION}::FDRCommand.init: failed for {self.dataref}: {e}")
+        return False
+
+    def execution(self, index: int, when: datetime) -> Command:
+        return Command(name=self.name, dataref=self.dataref, before=self.before, phase=self.phase, index=index, when=when.isoformat())
+
+    def start_logging(self, logger: Callable) -> bool:
+        if self.dref is None or self.refCon is None:
+            print(f"{NAME} {VERSION}::FDRCommand.start_logging: not initialized {self.dataref}")
+            return False
+        xp.registerCommandHandler(commandRef=self.dref, callback=logger, before=self.before, refCon=self.refCon)
+        if SHOW_TRACE:
+            print(f"{NAME} {VERSION}::FDRCommand.start_logging: installed {self.dataref}")
+        return True
+
+    def stop_logging(self, logger: Callable):
+        if self.dref is None or self.refCon is None:
+            print(f"{NAME} {VERSION}::FDRCommand.stop_logging: not initialized {self.dataref}")
+            return
+        xp.unregisterCommandHandler(commandRef=self.dref, callback=logger, before=self.before, refCon=self.refCon)
+        if SHOW_TRACE:
+            print(f"{NAME} {VERSION}::FDRCommand.stop_logging: uninstalled {self.dataref}")
 
 
 # Collected once for session, displayed in FDR report header
@@ -546,16 +609,16 @@ FDR_DATA = [
     FDRData(name="agl", dataref="sim/flightmodel2/position/y_agl"),
 ]
 
-FDR_COMMANDS = ["sim/map/show_current"]  # supplied for testing...
+FDR_COMMANDS = [FDR_RESET_COMMAND]  # supplied for testing...
 # Through preferences, user can add a set of fdr_data datarefs or commands to monitor
 
 # Datarefs that contains frequencies to scan for nav aids
 NAVAID_FREQUENCIES = [
-    FDRData.new(dataref="sim/cockpit/radios/adf1_freq_hz"),
-    FDRData.new(dataref="sim/cockpit/radios/adf2_freq_hz"),
-    FDRData.new(dataref="sim/cockpit/radios/dme_freq_hz"),
-    FDRData.new(dataref="sim/cockpit/radios/nav1_freq_hz"),
-    FDRData.new(dataref="sim/cockpit/radios/nav2_freq_hz"),
+    FDRData.new(config="sim/cockpit/radios/adf1_freq_hz"),
+    FDRData.new(config="sim/cockpit/radios/adf2_freq_hz"),
+    FDRData.new(config="sim/cockpit/radios/dme_freq_hz"),
+    FDRData.new(config="sim/cockpit/radios/nav1_freq_hz"),
+    FDRData.new(config="sim/cockpit/radios/nav2_freq_hz"),
 ]
 # Through preferences, user can add a set of additional frequencies to scan
 
@@ -1030,10 +1093,8 @@ class PythonInterface:
         self.navaid_counter = 0  # to search for different nav aid types at each iteration
 
         # commands
-        self.commands = FDR_COMMANDS
-        self.commandRefs = {}
-        self.commandRefCons = {}
-        self.commandExecs = []  # storage of executions
+        self.fdr_commands: Dict[str, FDRCommand] = {}
+        self.command_executions: List[Command] = []  # storage of executions
 
         # Working variables
         self._aircraft_movement = AIRCRAFT_MOVEMENT.UNKNOWN
@@ -1091,6 +1152,11 @@ class PythonInterface:
     #
     # HELPERS
     #
+    @property
+    def fdr_all_values(self) -> List[FDRData]:
+        # all datarefs to collect at each iteration
+        return list(self.header.values()) + list(self.fdr_info.values()) + list(self.fdr_mand.values()) + list(self.fdr_data.values())
+
     @property
     def fdr_all_data_values(self) -> List[FDRData]:
         # all datarefs to collect at each iteration
@@ -1191,7 +1257,6 @@ class PythonInterface:
             return AIRCRAFT_MOVEMENT.IN_AIR
         except Exception as e:
             self.debug(f"guessed_aircraft_movement: exception {e}")
-            print_exc()
             return AIRCRAFT_MOVEMENT.UNKNOWN
 
     @property
@@ -1355,7 +1420,7 @@ class PythonInterface:
         if author is not None:
             author = author.strip().replace(" ", "").lower()
         author_ok = author in ["glidingkiwi", "toliss"] or "toliss" in author
-        self.debug(f"is_airbus: {icao} ({icao_ok}) by {author} ({author_ok})", force=True)
+        # self.debug(f"is_airbus: {icao} ({icao_ok}) by {author} ({author_ok})", force=True)
         return author_ok and icao_ok
 
     @property
@@ -1523,6 +1588,12 @@ class PythonInterface:
             if c is None:
                 self.debug("need_soft_reset: airbus custom chocks is none", force=True)
                 return True
+
+        invalid = [d for d in self.fdr_all_values if d.dref is None]
+        if len(invalid) > 0:
+            self.debug(f"need_soft_reset: {len(invalid)}/{len(self.fdr_all_values)} invalid data", force=True)
+        # else:
+        #     self.debug("need_soft_reset: data available", force=True)
         icao = self.header.get("ICAO").value
         author = self.header.get("AUTH").value
         if icao is None or author is None:
@@ -1705,12 +1776,10 @@ class PythonInterface:
                 self.debug(f"install_preferences: uninstalling {len(self.fdr_data)} optional datarefs", force=True)
             self.fdr_data = {}
             for d in opts:
-                callback = d.get("callback")
-                if callback is not None:
-                    del d["callback"]
-                f = FDRData(**d)
-                f.init()
-                self.fdr_data[f.name] = f
+                f = FDRData.new(config=d)
+                if f is not None:
+                    f.init()
+                    self.fdr_data[f.name] = f
             self.debug(f"install_preferences: added {len(self.fdr_data)} datarefs to monitor", force=True)
 
         # Add information datarefs
@@ -1720,16 +1789,30 @@ class PythonInterface:
                 self.debug(f"install_preferences: uninstalling {len(self.fdr_info)} info datarefs", force=True)
             self.fdr_info = {}
             for d in opts:
-                f = FDRData(**d)
-                f.init()
-                self.fdr_info[f.name] = f
+                f = FDRData.new(config=d)
+                if f is not None:
+                    f.init()
+                    self.fdr_info[f.name] = f
             self.debug(f"install_preferences: added {len(self.fdr_info)} info datarefs", force=True)
 
         # commands
-        cmds = newprefs.get("commands", {})
+        cmds = newprefs.get("commands", [])
         if len(cmds) > 0:
-            self.commands = cmds
-            self.debug(f"install_preferences: added {len(self.commands)} commands to monitor", force=True)
+            for c in cmds:
+                try:
+                    fdrcmd = FDRCommand.new(config=c)
+                    if fdrcmd is not None:
+                        fdrcmd.init()
+                        self.fdr_commands[fdrcmd.dataref] = fdrcmd
+                except Exception as e:
+                    self.debug(f"install_preferences: exception: {e}", force=True)
+            # add monitoring of self
+            if FDR_RESET_COMMAND not in self.fdr_commands:
+                fdrcmd = FDRCommand.new(config=FDR_RESET_COMMAND)
+                if fdrcmd is not None:
+                    fdrcmd.init()
+                    self.fdr_commands[fdrcmd.dataref] = fdrcmd
+            self.debug(f"install_preferences: added {len(self.fdr_commands)} commands to monitor", force=True)
 
         # navaid frequencies
         opts = newprefs.get("navaid_freqs_optional", {})
@@ -1738,7 +1821,7 @@ class PythonInterface:
                 self.debug(f"uninstalling {len(self.navaid_freqs_optional)} navaid frequencies", force=True)
             self.navaid_freqs_optional = {}
             for d in opts:
-                f = FDRData.new(dataref=d)
+                f = FDRData.new(config=d)
                 f.init()
                 self.navaid_freqs_optional.append(f)
             self.debug(f"install_preferences: added {len(self.navaid_freqs_optional)} navaid frequencies", force=True)
@@ -2049,7 +2132,7 @@ class PythonInterface:
                 st = self.simulator_zulu_datetime.isoformat()
                 self.fdr_comment(f"end recording on {self.system_now_datetime.isoformat()}, {self.writes} writes (sim time={st})")
                 self.manual = manual
-            manually = "manually " if self.manual else ""
+            manually = " manually" if self.manual else ""
             self.debug(f"stop_recording: stopped{manually} at {self.simulator_zulu_datetime}")
 
     #
@@ -2128,7 +2211,6 @@ class PythonInterface:
                     #         add_navaid(navaid, freq)
         except Exception as e:
             self.debug(f"collect_navaids: error {e}")
-            print_exc()
 
     def save_navaids(self):
         # On file close, Writes encountered navaids to FDR as comments
@@ -2142,43 +2224,30 @@ class PythonInterface:
     #
     def logCommandExecution(self, commandRef, phase, refcon):
         # Uniform callback function to report command execution
-        RECORD_PHASE = [2]  # [0, 1, 2]
-        if phase in RECORD_PHASE:
-            c = Command(name=refcon["command"], before=refcon["before"], phase=phase, index=self.writes, when=self.simulator_zulu_datetime.isoformat())
-            self.commandExecs.append(c)
-            if WRITE_ASAP:
-                self.fdr_comment(f"{c}")
-            self.debug(f"logCommandExecution: added {c}")
+        try:
+            if phase in refcon["phase"]:
+                c = self.fdr_commands[refcon["dataref"]].execution(index=self.writes, when=self.simulator_zulu_datetime)
+                self.command_executions.append(c)
+                if WRITE_ASAP:
+                    self.fdr_comment(f"{c}")
+                self.debug(f"logCommandExecution: executed {c}")
+        except Exception as e:
+            self.debug(f"logCommandExecution: error {e}")
         return 1
 
     def start_command_logging(self):
-        # Add call back to report execution here
-        if len(self.commands) > 0:
-            for c in self.commands:
-                self.commandRefs[c] = xp.findCommand(c)
-                if self.commandRefs[c] is not None:
-                    self.commandRefCons[c] = {"command": c, "before": 1}
-                    xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=1, refCon=self.commandRefCons[c])
-                    # self.commandRefCons[c+"A"] = {"command": c, "before": 0}
-                    # xp.registerCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c+"A"])
-                    self.debug(f"start_command_logging: installed {c}")
-                else:
-                    del self.commandRefs[c]
-            self.debug(f"start_command_logging: logging execution of {len(self.commandRefs)} commands", force=True)
+        i = 0
+        for c in self.fdr_commands.values():
+            if c.start_logging(logger=self.logCommandExecution):
+                i += 1
+        self.debug(f"start_command_logging: logging execution of {i} commands", force=True)
 
     def stop_command_logging(self):
-        # Remove the call back
-        if len(self.commandRefs) > 0:
-            for c in self.commands:
-                if c in self.commandRefs:
-                    xp.unregisterCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=1, refCon=self.commandRefCons[c])
-                    self.debug(f"stop_command_logging: uninstalled {c}")
-                    # xp.unregisterCommandHandler(commandRef=self.commandRefs[c], callback=self.logCommandExecution, before=0, refCon=self.commandRefCons[c+"A"])
-                    # self.debug(f"stop_command_logging: uninstalled {c+"A"}")
-            self.commandRefs = {}
-            self.debug("stop_command_logging: stopped", force=True)
+        for c in self.fdr_commands.values():
+            c.stop_logging(logger=self.logCommandExecution)
+        self.debug("stop_command_logging: stopped monitoring for all commands", force=True)
 
     def save_command_execution(self):
         # On file close, Writes encountered navaids to FDR as comments
-        for c in self.commandExecs:
+        for c in self.command_executions:
             self.fdr_comment(f"{c}")
