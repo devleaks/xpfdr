@@ -1,3 +1,5 @@
+---
+# Place this file in <X-Plane 12>/Output/preferences
 description: Preference file for finer recording
 fdr_arch: APPLE
 frequency: 1
