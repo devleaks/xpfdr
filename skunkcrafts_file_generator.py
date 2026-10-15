@@ -46,7 +46,7 @@ def out(what):
         print(f"{f}|{v[what]}")
 
 
-r = f"""module|https://raw.githubusercontent.com/devleaks/followthegreens/refs/heads/main
+r = f"""module|https://raw.githubusercontent.com/devleaks/xpfdr/refs/heads/main
 name|{NAME}
 version|{VERSION}
 disabled|false
