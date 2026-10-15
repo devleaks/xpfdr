@@ -73,7 +73,7 @@ CHANGELOG
 2.0.0 13-OCT-2026 First release
 2.0.1 14-OCT-2026 Refactor command logging
 2.0.2 14-OCT-2026 Now also accept dataref in simpler form (just the dataref)
-2.1.0 13-OCT-2026 First "public" release
+2.1.0 13-OCT-2026 First "public" release, added abnormal airbus phase changes (case by case)
 
 """
 
@@ -127,7 +127,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "2.0.2"
+VERSION = "2.1.0"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
