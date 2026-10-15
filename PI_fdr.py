@@ -127,7 +127,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -434,11 +434,9 @@ class FDRData:
         if self.dref is None:
             print(f"{NAME} {VERSION}::FDRData.value: {self.name} {self.dataref} no dref")
             try:  # try to re-init it
-                self.init()
-                if self.dref is not None:
-                    print(f"{NAME} {VERSION}::FDRData.value: {self.name} {self.dataref} inited with delay")
-                else:
+                if not self.init():
                     return None
+                print(f"{NAME} {VERSION}::FDRData.value: {self.name} {self.dataref} inited with delay")
             except Exception as e:
                 print(f"{NAME} {VERSION}::FDRData.value: init {self.name} {self.dataref} exception: {e}")
             return None
@@ -1635,35 +1633,6 @@ class PythonInterface:
     def need_delayed_init(self) -> bool:
         return self.custom_chocks is None and self.prefs.get("chocks") is not None
 
-    @property
-    def need_soft_reset(self) -> bool:
-        if self.is_airbus and self.custom_chocks is not None:
-            c = self.custom_chocks.value
-            if c is None:
-                self.debug("need_soft_reset: airbus custom chocks is none", force=True)
-                return True
-
-        invalid = [d.dataref for d in self.fdr_all_values if d.dref is None]
-        if len(invalid) > 0:
-            self.debug(f"need_soft_reset: {len(invalid)}/{len(self.fdr_all_values)} invalid data ({invalid})", force=True)
-        # else:
-        #     self.debug("need_soft_reset: data available", force=True)
-        acfpath = self.header.get("ACFT").value
-        icao = self.header.get("ICAO").value
-        author = self.header.get("AUTH").value
-        if acfpath is None or icao is None or author is None:
-            self.debug(f"need_soft_reset: {acfpath}, {icao}, {author}", force=True)
-            return True
-        return False
-
-    def soft_reset(self):
-        # called when aircraft loaded after plugin
-        if self.last_acf is None:
-            self.load_acf_preferences()
-        else:
-            self.install_preferences(newprefs=self.prefs)  # no need to restart, they haven't changed
-        self.debug("soft_reset: completed", force=True)
-
     def delayed_init(self):
         if self.custom_chocks is None:
             custom_chocks = self.prefs.get("chocks")
@@ -1674,6 +1643,36 @@ class PythonInterface:
                     self.debug(f"delayed_init: using custom chocks dataref {custom_chocks}", force=True)
                 else:
                     self.debug(f"delayed_init: failed to init custom chocks dataref {custom_chocks}, using default chocks dataref", force=True)
+
+    @property
+    def need_soft_reset(self) -> bool:
+        acfpath = self.header.get("ACFT").value
+        if acfpath is None:
+            self.debug("need_soft_reset: no acf path", force=True)
+            return True
+        # self.debug(f"need_soft_reset: acf path {acfpath}", force=True)
+        if self.last_acf is None or self.last_acf != acfpath:
+            self.debug("need_soft_reset: aircraft not loaded", force=True)
+            return True
+        # self.debug(f"need_soft_reset: last acf {self.last_acf}", force=True)
+        invalid = []
+        for d in [d for d in self.fdr_all_values if d.dref is None]:
+            if not d.init():
+                invalid.append(d.dataref)
+        if len(invalid) > 0:
+            self.debug(f"need_soft_reset: {len(invalid)}/{len(self.fdr_all_values)} invalid data ({invalid})", force=True)
+        return len(invalid) > 0
+
+    def soft_reset(self):
+        # called when aircraft loaded after plugin
+        ctl = ""
+        if self.last_acf is None:
+            self.load_acf_preferences()
+            ctl = " (loaded)"
+        else:
+            self.install_preferences(newprefs=self.prefs)  # no need to restart, they haven't changed
+            ctl = " (installed)"
+        self.debug(f"soft_reset: completed{ctl}", force=True)
 
     def reset_fdr(self) -> bool:
         return False
@@ -1949,7 +1948,7 @@ class PythonInterface:
                     if self._afp.should_turn_on(self.simulator_zulu_datetime):
                         outfile = self.open_fdr_file()
                         self.start_recording()
-                        self.debug(f"supervisor: ..started (Airbus logic {self._afp.reason}), saving FDR into {outfile}", force=True)
+                        self.debug(f"supervisor: started (Airbus logic: {self._afp.reason}), saving FDR into {outfile}..", force=True)
                 return AUTOSTART_FREQUENCY
             #
             # ################################################
@@ -1961,7 +1960,7 @@ class PythonInterface:
                     self.debug("supervisor: move detected, starting FDR..", force=True)
                     outfile = self.open_fdr_file()
                     self.start_recording()
-                    self.debug(f"supervisor: ..started, saving FDR into {outfile}", force=True)
+                    self.debug(f"supervisor: started, saving FDR into {outfile}..", force=True)
             else:  # stop after a 10 minute continuous stopped time out?
                 tdiff = self.how_long_stopped()
                 if tdiff > AUTOSTOP_THRESHOLD and self.recorder_running:

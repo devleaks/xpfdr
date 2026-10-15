@@ -40,6 +40,8 @@ Files are named after the start time of the record.
 FDR files slightly diverge from "formal" FDR v4 format
 by allowing a fractional part to seconds (milliseconds or microseconds)
 for more precision.
+Also, time between two collections may vary.
+(It is dynamically adjusted based on flight phase.)
 
 
 ### FDR Meta Data
