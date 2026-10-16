@@ -74,6 +74,9 @@ CHANGELOG
 2.0.1 14-OCT-2026 Refactor command logging
 2.0.2 14-OCT-2026 Now also accept dataref in simpler form (just the dataref)
 2.1.0 13-OCT-2026 First "public" release, added abnormal airbus phase changes (case by case)
+2.1.1 16-OCT-2026 Better control of manual start/stop
+2.1.2 16-OCT-2026 Fixed aircraft delayed loading
+2.1.3 16-OCT-2026 Added global phase status reporting in case of abnormal phase changes
 
 """
 
@@ -127,7 +130,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "2.1.1"
+VERSION = "2.1.3"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -291,7 +294,8 @@ class FDRData:
                 self.dref = find_dataref(whole_dref)
                 self.dataref = whole_dref
                 # print(f"{NAME} {VERSION}::FDRData.init: {whole_dref}: len={self.length}, {self.pyslice} -> {self.indices})")
-                print(f"{NAME} {VERSION}::FDRData.init: registered {whole_dref}{self.indices}")
+                if SHOW_TRACE:
+                    print(f"{NAME} {VERSION}::FDRData.init: registered {whole_dref}{self.indices}")
                 # self.info()
                 return True
             if "[" in whole_dref:
@@ -695,6 +699,7 @@ class AirbusFlightPhase:
         self.reason = ""
         self.recommended_frequency = 1.0  # AirbusFlightPhase.NORMAL_ACQUISITION
         self.abnormal_flag = False
+        self.show_status = True
 
         if not self.valid:
             self.debug("invalid, may be some dataref missing?", force=True)
@@ -761,7 +766,10 @@ class AirbusFlightPhase:
         return f"current phase is {self.current.phase.name} since {self.current.when.isoformat()}"
 
     def history(self) -> str:
-        return "to be done"
+        h = []
+        for p in self._sequence:
+            h.append(f"{p.phase.name} at {p.when.isoformat()}")
+        return "\n".join(h)
 
     def set_frequency(self):
         before = self.recommended_frequency
@@ -800,7 +808,8 @@ class AirbusFlightPhase:
         def abnormal(phase: AIRBUS_PHASE, message) -> FlightPhase:
             new_phase = FlightPhase(phase=phase, when=dt)
             # msg = f"flight_phase/abnormal: {message}: "
-            msg = f"flight_phase/abnormal: {message}: ** SHOULD CHANGE BUT NOT CHANGED **: "
+            msg = f"flight_phase/abnormal: {message}: ** ABNORMALITY REPORTED BUT NO FLIGHT PHASE CHANGE **: "
+            self.status(force=self.abnormal_flag)
             self.debug(f"{msg}{self.current.phase.name} > {new_phase.phase.name} at {dt.replace(microsecond=0)}", force=True)
             # self._sequence.append(new_phase)
             # self.current = new_phase
@@ -916,6 +925,7 @@ class AirbusFlightPhase:
         # from that stage we may cycle:
         #  - We may jump to OFF
         #  - We may remain electrically powered and start the next flight
+
         if self.current.phase == AIRBUS_PHASE.ELECPOWER and self.test_off():
             return set_phase(phase=AIRBUS_PHASE.OFF, message="no longer electrically powered")
 
@@ -1066,12 +1076,12 @@ class AirbusFlightPhase:
 
     def test_shutdown(self) -> bool:
         engs = self.get_value("eng_pwr", [])
-        self.debug(f"test_shutdown: {engs} < {ENG_OFF}", force=self.abnormal_flag)
         if len(engs) < 2:
             return False
         offs = [e < ENG_OFF for e in engs]
         if all(offs):
             self._e = -1
+            self.debug(f"test_shutdown: {engs} < {ENG_OFF}", force=self.abnormal_flag)
             return True
         return False
 
@@ -1081,11 +1091,28 @@ class AirbusFlightPhase:
         return self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN and how_long > FIVEMIN
 
     def test_off(self) -> bool:  # more or less not self.test_elecpwr()
-        self.debug(f"test_off: {self.get_value('elec_pwr', 1)}", force=self.abnormal_flag)
-        return self.get_value("elec_pwr", 1) == 0
+        off = self.get_value("elec_pwr", 1)
+        if off == 0:
+            self.debug(f"test_off: {self.get_value('elec_pwr', 1)}", force=self.abnormal_flag)
+        return off == 0
 
     #
     # REPORTING
+    def status(self, force: bool = False):
+        WRONG = -0.99
+        s = []
+        s.append(f"elec_pwr={self.get_value('elec_pwr', 1)}")
+        s.append(f"engine_pwr={self.get_value("eng_pwr", [])}")
+        s.append(f"agl={self.get_value("agl", WRONG)}")
+        s.append(f"gs={self.get_value("gs", WRONG)}")
+        s.append(f"history:\n{self.history()}")
+        s.append(f"{self.report()}")
+        s.append(f"in_air={self.in_air}, stopped={self.stopped}")
+        for i in AIRBUS_PHASE:
+            test = self.AIRBUS_PROCESS[i]
+            s.append(f"test: {i.name}={test()}")
+        self.debug("debug:\n------\n" + "\n".join(s) + "\n------", force=True)
+
     def save(self, file):
         # On file close, Writes encountered navaids to FDR as comments
         for ph in self._sequence:
@@ -1634,16 +1661,23 @@ class PythonInterface:
                     self.debug(f"delayed_init: failed to init custom chocks dataref {custom_chocks}, using default chocks dataref", force=True)
 
     @property
-    def need_soft_reset(self) -> bool:
+    def aircraft_loaded(self) -> bool:
         acfpath = self.header.get("ACFT").value
         if acfpath is None:
-            self.debug("need_soft_reset: no acf path", force=True)
-            return True
-        # self.debug(f"need_soft_reset: acf path {acfpath}", force=True)
-        if self.last_acf is None or self.last_acf != acfpath:
+            self.debug("aircraft_loaded: no acf path", force=True)
+            return False
+        if self.last_acf == "":
+            self.debug(f"aircraft_loaded: aircraft not loaded ({self.last_acf}, {acfpath})", force=True)
+            return False
+        if self.last_acf != acfpath:
+            self.debug(f"aircraft_loaded: new aircraft ({self.last_acf}, {acfpath})", force=True)
+        return self.last_acf == acfpath
+
+    @property
+    def need_soft_reset(self) -> bool:
+        if not self.aircraft_loaded:
             self.debug("need_soft_reset: aircraft not loaded", force=True)
             return True
-        # self.debug(f"need_soft_reset: last acf {self.last_acf}", force=True)
         invalid = []
         for d in [d for d in self.fdr_all_values if d.dref is None]:
             if not d.init():
@@ -1655,7 +1689,7 @@ class PythonInterface:
     def soft_reset(self):
         # called when aircraft loaded after plugin
         ctl = ""
-        if self.last_acf is None:
+        if not self.aircraft_loaded:
             self.load_acf_preferences()
             ctl = " (loaded)"
         else:

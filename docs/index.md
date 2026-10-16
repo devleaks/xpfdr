@@ -68,13 +68,17 @@ Meta Data is used, for example, by the FDR reader.
 
 In the FDR record file, the recorder writes
 
-  - Meta data about the dataref requested (units, sizes, etc.)
-  - The list of units for each column in a record if available.
-  - A list of columns names for a record
+  - Mandatory meta data
+  - Meta data about the requested dataref (units, sizes, etc.)
+  - The list of units for each column in the record
+  - A list of columns names for the record
   - The start and stop date/time of the recording in both simulator UTC time and computer local time.
 
-Information is written as a comment before the data records.
+Information is written as comments before the data records.
 
+End of recording also write a few more meta data like end of recording date and time,
+and some summary information like number of records,
+and flight status information if available (OOOI).
 
 ## Recording Preferences
 
@@ -181,6 +185,15 @@ In the above expression `${x}` is the raw _numeric_ dataref value.
 
 This scheme is a alternate, more sophisticated method than the built-in FDR DREF factor parameter,
 which remains available as the factor attribute in the Data Definition.
+Please note that the _factor_ is not used in FDR, it is just forwarded in the FDR version 4 DREF attribute.
+
+```yaml
+  - name: vertical_speed
+    dataref: sim/cockpit2/gauges/indicators/vvi_fpm_pilot
+    unit: m/s # dataref is ft/min, converted by callback into m/s
+    callback: ${x} 0.00508 *
+    chart: Speeds
+```
 
 
 ### Monitored _Command Definition_
@@ -194,8 +207,14 @@ Monitored command is described by the following fields:
   - `chart` : A hint to group data in the same chart in the viewer. Optional.
     (If the chart name is `no-chart`, the data is not presented in the viewer.)
 
+```yaml
+  - name: Caution
+    dataref: sim/annunciator/clear_master_wcaution
+    before: 1
+    phase: [0, 2]
+```
 
-### Experimental Feature for Array Datarefs
+### Array Datarefs
 
 It is possible to list dataref with a python `slice()` syntax.
 
@@ -242,9 +261,6 @@ is that all values of the dataref array are fetched
 during each data collection, but only those values that are requested are returned.
 (On a longer term, this can become a performance issue if many arrays are requested.
 As an alternative, it is always possible to fetch a single array value.)
-
-
-*This is an experimental feature and may not work as expected. Use with caution.*
 
 
 ### Default Behavior and Values
