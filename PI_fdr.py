@@ -478,23 +478,6 @@ class NAVAID_TYPE(IntEnum):
     LATLON = 2048
     TACAN = 4096
 
-class NAVAID_TYPE_OLD(IntEnum):
-    Nav_Unknown = 0
-    Nav_Airport = 1
-    Nav_NDB = 2
-    Nav_VOR = 4
-    Nav_ILS = 8
-    Nav_Localizer = 16
-    Nav_GlideSlope = 32
-    Nav_OuterMarker = 64
-    Nav_MiddleMarker = 128
-    Nav_InnerMarker = 256
-    Nav_Fix = 512
-    Nav_DME = 1024
-    Nav_LatLon = 2048
-    Nav_TACAN = 4096
-
-
 
 @dataclass
 class NavAid:
@@ -711,6 +694,7 @@ class AirbusFlightPhase:
         self.current = FlightPhase(phase=AIRBUS_PHASE.OFF, when=dt)
         self.reason = ""
         self.recommended_frequency = 1.0  # AirbusFlightPhase.NORMAL_ACQUISITION
+        self.abnormal_flag = False
 
         if not self.valid:
             self.debug("invalid, may be some dataref missing?", force=True)
@@ -815,11 +799,12 @@ class AirbusFlightPhase:
 
         def abnormal(phase: AIRBUS_PHASE, message) -> FlightPhase:
             new_phase = FlightPhase(phase=phase, when=dt)
-            msg = f"flight_phase/abnormal: {message}: "
+            # msg = f"flight_phase/abnormal: {message}: "
+            msg = f"flight_phase/abnormal: {message}: ** SHOULD CHANGE BUT NOT CHANGED **: "
             self.debug(f"{msg}{self.current.phase.name} > {new_phase.phase.name} at {dt.replace(microsecond=0)}", force=True)
-            self._sequence.append(new_phase)
-            self.current = new_phase
-            self.set_frequency()
+            # self._sequence.append(new_phase)
+            # self.current = new_phase
+            # self.set_frequency()
             return self.current
 
         if not self.valid:
@@ -945,6 +930,8 @@ class AirbusFlightPhase:
         # Case by case, too difficult to make it "generic"
 
         # No more electrical power?
+        self.abnormal_flag = True
+
         if self.current.phase not in [AIRBUS_PHASE.OFF, AIRBUS_PHASE.ELECPOWER] and self.test_off():
             abnormal(phase=AIRBUS_PHASE.OFF, message="no more electrically power?")
 
@@ -960,6 +947,8 @@ class AirbusFlightPhase:
                 AIRBUS_PHASE.DECEL80KT
             ] and self.test_shutdown():
             abnormal(phase=AIRBUS_PHASE.SECONDENGSHUTDOWN, message="both engine off?")
+
+        self.abnormal_flag = False
 
         return self.current
 
@@ -1077,7 +1066,7 @@ class AirbusFlightPhase:
 
     def test_shutdown(self) -> bool:
         engs = self.get_value("eng_pwr", [])
-        self.debug(f"test_shutdown: {engs} < {ENG_OFF}")
+        self.debug(f"test_shutdown: {engs} < {ENG_OFF}", force=self.abnormal_flag)
         if len(engs) < 2:
             return False
         offs = [e < ENG_OFF for e in engs]
@@ -1092,7 +1081,7 @@ class AirbusFlightPhase:
         return self.current.phase == AIRBUS_PHASE.SECONDENGSHUTDOWN and how_long > FIVEMIN
 
     def test_off(self) -> bool:  # more or less not self.test_elecpwr()
-        self.debug(f"test_off: {self.get_value('elec_pwr', 1)}")
+        self.debug(f"test_off: {self.get_value('elec_pwr', 1)}", force=self.abnormal_flag)
         return self.get_value("elec_pwr", 1) == 0
 
     #
@@ -2001,12 +1990,14 @@ class PythonInterface:
     def _write(self, text):
         if self.file is not None:
             try:
-                good = "".join(c for c in text if c.isprintable() or c == "\n" or c == "\r")
-                print(good, end="\n" if self.arch == FDR_ARCH else "\r\n", flush=True, file=self.file)
+                ascii_text = text.encode("ascii", "ignore").decode()
+                clean_text = "".join(c for c in ascii_text if c.isprintable() or c == "\n" or c == "\r")
+                print(clean_text, end="\n" if self.arch == FDR_ARCH else "\r\n", flush=True, file=self.file)
             except Exception as e:
                 self.debug(f"_write: exception: {e}", force=True)
                 l = [ord(c) for c in text]
                 self.debug(f"_write: exception: {l}", force=True)
+                self.debug(f"_write: exception: {text}", force=True)
         else:
             self.debug("_write: no file", force=True)
 

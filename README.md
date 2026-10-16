@@ -34,6 +34,10 @@ FDR logs navaids of type VOR, DME, NDB, fixes, and airports.
 FDR recording files are stored in the `<X-Plane 12 Folder>/Output/fdr/` folder.
 Files are named after the start time of the record.
 
+Depending on the collection frequency, the number of data collected, etc.
+it is difficult to estimate the size of a recording.
+Expect a few MB per hour or flight.
+
 
 ### FDR File Format
 
@@ -244,7 +248,7 @@ It is a lightweight process that has no impact on the frame rate.
 
 When the plugin is installed, this occurs automatically without user interaction.
 
-In summary, if you install XPPython3 plugin and drop this PI_fdr.yp script into it,
+In summary, if you install XPPython3 plugin and drop this PI_fdr.py script into it,
 you will have permanent _«black box»_ function all the time.
 Resolution will be minimal (every 10 seconds).
 Data will be minimal as well (lat, lon, alt, speed, heading, pitch, roll).

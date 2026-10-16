@@ -81,13 +81,14 @@ CHANGELOG
 1.7.0 23-SEP-2026 Allow for chart grouping
 1.8.0 24-SEP-2026 Attempt to display timeline of execution of commands with ChartJS
 1.8.1 25-SEP-2026 Now display timeline of execution of commands with ChartJS, no added package
+1.9.0 15-OCT-2026 Add decimation to charts, build decimation for leaflet points
 
 TO DO
   - Add buttons to zoom on take-off or landing. (from OOOI)
 
 */
 
-const VERSION = "1.8.1"
+const VERSION = "1.9.0"
 
 // File types for FDR: GeoJSON
 const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", "text/csv", ""]
@@ -119,19 +120,19 @@ const AIRCRAFT_ICON = L.icon({
 const NAVAID_ICON_SIZE = 16
 function NAVAID_ICON(navType) {
     ICON_NAME = {
-        Unknown: "media/userpoint_Closed.svg",
-        Airport: "media/airport.svg",
+        UNKNOWN: "media/userpoint_Closed.svg",
+        APT: "media/airport.svg",
         NDB: "media/ndb.svg",
         VOR: "media/vor.svg",
         ILS: "media/ils.svg",
-        Localizer: "media/loc.svg",
-        GlideSlope: "media/gls.svg",
-        OuterMarker: "media/userpoint_Airstrip.svg",
-        MiddleMarker: "media/userpoint_Airstrip.svg",
-        InnerMarker: "media/userpoint_Airstrip.svg",
-        Fix: "media/waypoint.svg",
+        LOC: "media/loc.svg",
+        GS: "media/gls.svg",
+        OM: "media/userpoint_Airstrip.svg",
+        MM: "media/userpoint_Airstrip.svg",
+        IM: "media/userpoint_Airstrip.svg",
+        FIX: "media/waypoint.svg",
         DME: "media/dme.svg",
-        LatLon: "media/userpoint_Waypoint.svg",
+        LATLON: "media/userpoint_Waypoint.svg",
         TACAN: "media/userpoint_TACAN.svg",
         Command: "media/empty_circle.svg",
     }
@@ -200,7 +201,8 @@ const MAX_LINES = 3;  // ideal number of charts rows, BUT grows as needed to acc
 const MAX_COLUMNS = 4;  // reasonable max.
 const MAX_DATA_PER_CHART = 6;  // reasonable max.
 const COMPACT = 1;  // 0=no compact, 1=1 row max_col charts; 2=1 chart, max_col data
-
+const NO_CHART = "no-chart";  // keyword to remove data frmo chart
+const AUTO_CHART_ARRAY = true;  // automatically group all data from same datarefs (arrays)
 const AUTO_ADJUST_LAYOUT = true;
 var NUM_COLUMNS = 3;          
 var NUM_DATA_PER_CHART = 4;
@@ -279,12 +281,15 @@ class NavAid {
 }
 
 function error(message) {
+
+
     container = document.getElementById("charts");
     container.innerHTML = message;
     console.error(message);
 }
 
 const KEYVALUEREGEX = /(\w+)=('.*?'|".*?"|\s*\w+\(.*?\)|[^,=\s\)]+)/g;
+const INDICESREGEX = /_indices[ \t]*=[ \t]*\[[ \t]*\d+(?:[ \t]*,[ \t]*\d+)+[ \t]*\]/g;
 function nameValue(s) {
     let params = {};
     let match;
@@ -294,6 +299,21 @@ function nameValue(s) {
         value = value.replace(/['"]$/, "");
         value = value.replace(/^['"]/, "");
         params[key] = value == "None" ? null : value;
+    }
+    // extract indices, highly specific! not generic at all
+    // search specifically for "_indices=[1, 2, 3]" string portion, then parse it
+    if ((match = INDICESREGEX.exec(s)) !== null) {
+        const INDICESREGEX2 = /\[[ \t]*\d+(?:[ \t]*,[ \t]*\d+)+[ \t]*\]/g;
+        let m2;
+        if ((m2 = INDICESREGEX2.exec(s)) != null) {
+            let ms = m2[0];
+            let arr = ms.replace("[", "").replace("]", "").replaceAll(" ", "").split(",")
+            for(let i=0; i<arr.length; i++) {
+                arr[i] = parseInt(arr[i]);
+            }
+            params["_indices"] = arr;
+            console.log("_indices", match, m2, arr);
+        }
     }
     return params;    
 }
@@ -425,6 +445,7 @@ function parseFDRFile(text) {
             if (line[0].trim() == "COMM") {
                 let a = line.slice(1).join(",").trim();
                 if (a.startsWith("FDRData(")) {
+                    console.log(">>>", a)
                     let params = nameValue(a)
                     let d = new FDRData(
                         params["name"],
@@ -747,6 +768,9 @@ function findMapZoomIndex() {
 }
 
 // MAP
+var latlngs_raw = [];   // minimal data for cursor
+var tlabels_raw = [];   // x-axis time ticks (same for all charts)
+
 function buildMap(text, filetype) {
     document.body.style["background-image"] = "none";
     let geojson;
@@ -819,7 +843,23 @@ function buildMap(text, filetype) {
     }).addTo(map);
 
     // add interaction "invisible" points
-    points.forEach((m) => { m.addTo(map); })
+    const MAX_POINTS = 400;
+    if (points.length > MAX_POINTS) {
+        let newpf = Array();
+        let sample = Math.ceil(points.length / MAX_POINTS)
+        let i = 0;
+        let cnt = 0;
+        while(i < points.length) {
+            if (i % sample == 0) {
+                points[i].addTo(map);
+                cnt++;
+            }
+            i++;
+        }
+        console.log("decimation", points.length, MAX_POINTS, sample, cnt);
+    } else {
+        points.forEach((m) => { m.addTo(map); })
+    }
 
     map.on("zoomend", mapZoomed);
     map.on("moveend", mapPanned);
@@ -854,12 +894,27 @@ function buildMap(text, filetype) {
             if (d.chart != null) {
                 if (Object.keys(chartNames).indexOf(d.chart) == -1) {
                     chartNames[d.chart] = Array();
-                    if (d.chart != "no-chart") {
+                    if (d.chart != NO_CHART) {
                         namedCharts++;
                     }
                 }
-                chartNames[d.chart].push(d.name);
-                remove(chartsToDraw, d.name)
+                if (d._indices != null) {
+                    d._indices.forEach( (i) => {
+                        const name = d.name + "[" + i + "]";
+                        chartNames[d.chart].push(name);
+                        remove(chartsToDraw, name)
+                    });
+                } else {
+                    chartNames[d.chart].push(d.name);
+                    remove(chartsToDraw, d.name)
+                }
+            } else if (AUTO_CHART_ARRAY && d._indices != null) {
+                console.log("auto charting", d.name, d._indices);
+                d._indices.forEach( (i) => {
+                    const name = d.name + "[" + i + "]";
+                    chartNames[d.chart].push(name);
+                    remove(chartsToDraw, name)
+                });
             }
         });
     }
@@ -1206,18 +1261,17 @@ function remove(arr, elem) {
 
 function buildOtherCharts() {
     let i = 0;
-    let datasets = [];
-    let title = [];
 
     // Named charts
-    Object.keys(chartNames).forEach( (c) => {
-        if (c == "no-chart") {
+    Object.keys(chartNames).forEach( (label) => {
+        if (label == NO_CHART) {
             return;
         }
-        let label = c;
-        chartNames[c].forEach( (d) => {
+        let datasets = [];
+        const data_in_chart = chartNames[label].length
+        console.log("named chart", label, chartNames[label], chartNames[label].length)
+        chartNames[label].forEach( (d) => {
             let data = propertyValues(d);
-            title.push(d.replaceAll("_", " "))
             datasets.push({
                 backgroundColor: chartColor(i) + "60", // transparency
                 borderColor: chartColor(i),
@@ -1226,19 +1280,16 @@ function buildOtherCharts() {
                 label: d.replaceAll("_", " "),
                 pointRadius: 0,
                 tension: 0,
-                yAxisID: NUM_DATA_PER_CHART == 2 && (i%2) == 1 ? "y1" : "y",
+                yAxisID: data_in_chart == 2 && (i%2) == 1 ? "y1" : "y",
             });
             i++;
         });
-        if (datasets.length >= NUM_DATA_PER_CHART) {
-            addChart([label], datasets);
-            title = [];
-            datasets = [];
-        }
+        addChart([label], datasets);
     });
 
-    i = 0;
     // All remaining charts
+    let title = [];
+    let datasets = [];
     while (i < chartsToDraw.length) {
         let label = chartsToDraw[i];
         let data = propertyValues(label);
