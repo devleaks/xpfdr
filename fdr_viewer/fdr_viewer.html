@@ -910,9 +910,13 @@ function buildMap(text, filetype) {
                 }
             } else if (AUTO_CHART_ARRAY && d._indices != null) {
                 console.log("auto charting", d.name, d._indices);
+                if (Object.keys(chartNames).indexOf(d.name) == -1) {
+                    chartNames[d.name] = Array();
+                    namedCharts++;
+                }
                 d._indices.forEach( (i) => {
                     const name = d.name + "[" + i + "]";
-                    chartNames[d.chart].push(name);
+                    chartNames[d.name].push(name);
                     remove(chartsToDraw, name)
                 });
             }

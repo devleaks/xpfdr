@@ -2165,8 +2165,9 @@ class PythonInterface:
 
     def stop_recording(self, manual: bool = False):
         if self.recorderFL is not None:
-            if self.manual:
-                self.debug("stop_recording: last start recording was manual")
+            if self.manual and not manual:
+                self.debug("stop_recording: last start recording was manual, must stop manually", force=True)
+                return
             self.stop_command_logging()
             xp.destroyFlightLoop(self.recorderFL)
             xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 1)

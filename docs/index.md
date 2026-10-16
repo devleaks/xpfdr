@@ -17,6 +17,17 @@ and stops when there is no aircraft movement for 10 minutes.
 
 Alternatively, it is possible to manually start and stop the recording through the _Start or stop FDR_ Plugin Menu entry.
 An _enabled_ marker (white dot) sits in front of the menu entry when the recorder is running.
+When the recording is started manually through the menu entry,
+it must be stopped manually by the menu entry,
+it will *not* be stopped automatically.
+
+
+(Note: The opposite is not true. If the plugin is stopped manually,
+but FDR determines it should run, a new recording session will be started right away.
+If this behavior is not acceptable, you should add a `autostart: false` preference.
+If autostart is set to false, the plugin will never start or stop automatically,
+only on manual entries from the menu. See below.)
+
 
 ![On/Off Marker](images/rec.png)
 
