@@ -131,7 +131,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "2.1.3"
+VERSION = "2.1.4"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
