@@ -2,7 +2,13 @@ import os
 import binascii
 import glob
 
-from PI_fdr import VERSION, NAME
+# EDIT PLUGIN NAME AND VERSION HERE
+#
+# NAME="MyPythonPlugin"
+# VERSION="1.0.0"
+#
+from PI_fdr import NAME, VERSION
+#
 
 WRITE_FILE = True
 

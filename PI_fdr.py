@@ -77,6 +77,7 @@ CHANGELOG
 2.1.1 16-OCT-2026 Better control of manual start/stop
 2.1.2 16-OCT-2026 Fixed aircraft delayed loading
 2.1.3 16-OCT-2026 Added global phase status reporting in case of abnormal phase changes
+2.1.4 16-OCT-2026 For airbus: Detect caution/warning and increase sampling rate during crisis up to 60 seconds after
 
 """
 
@@ -668,9 +669,11 @@ class AirbusFlightPhase:
             dataref: AirbusFBW/EngineThrust_N
     """
 
+    ALARM_ACQUISITION = 0.5  # secs
     FAST_ACQUISITION = 0.5  # secs
     NORMAL_ACQUISITION = 1.0  # secs
-    CRUIZE_ACQUISITION = 2.0  # secs
+    CRUIZE_ACQUISITION = 5.0  # secs
+    ALARM_DURATION = 60.0  # secs
 
     def __init__(self, dt: datetime, datarefs: dict, alt_reg: Callable, spd_reg: Callable, airtime: Callable) -> None:
         self.AIRBUS_PROCESS = {
@@ -700,6 +703,7 @@ class AirbusFlightPhase:
         self.recommended_frequency = 1.0  # AirbusFlightPhase.NORMAL_ACQUISITION
         self.abnormal_flag = False
         self.show_status = True
+        self.alarm_time = None
 
         if not self.valid:
             self.debug("invalid, may be some dataref missing?", force=True)
@@ -729,6 +733,10 @@ class AirbusFlightPhase:
     @property
     def ecam_flight_phase(self) -> int:
         return self.get_value("ecam_flight_phase", -1)
+
+    @property
+    def ecam_flight_phase_str(self) -> str:
+        return AIRBUS_PHASE(self.get_value("ecam_flight_phase", 0)).name
 
     def speed_regression_reliable(self) -> bool:
         r, e, cnt, diff = self.speed_lr()
@@ -771,11 +779,38 @@ class AirbusFlightPhase:
             h.append(f"{p.phase.name} at {p.when.isoformat()}")
         return "\n".join(h)
 
+    @property
+    def alarm(self) -> bool:
+        c = self.get_value("AirbusFBW/MasterCaut", 0)
+        w = self.get_value("AirbusFBW/MasterWarn", 0)
+        return c == 1 or w == 1  # return c + 2 * w  # 0, 1, 2, or 3
+
+    def check_alarm(self) -> bool:
+        if self.alarm:
+            if self.alarm_time is None:
+                self.debug("check_alarm: set")
+            self.alarm_time = datetime.now(tz=timezone.utc)
+            if self.recommended_frequency != AirbusFlightPhase.ALARM_ACQUISITION:
+                before = self.recommended_frequency
+                self.recommended_frequency = AirbusFlightPhase.ALARM_ACQUISITION
+                self.debug(f"flight_phase: adjusted collection frequency {before} > {self.recommended_frequency}", force=True)
+            return True
+        if self.alarm_time is None:
+            return False
+        if (datetime.now(tz=timezone.utc) - self.alarm_time).total_seconds() > AirbusFlightPhase.ALARM_DURATION:
+            self.alarm_time = None
+            self.debug("check_alarm: cleared")
+            self.set_frequency()
+            return False
+        return True
+
     def set_frequency(self):
         before = self.recommended_frequency
-        if self.current.phase in [AIRBUS_PHASE.ABOVE1500FT]:
+        if self.alarm_time is not None:
+            self.recommended_frequency = AirbusFlightPhase.ALARM_ACQUISITION
+        elif self.current.phase in [AIRBUS_PHASE.ABOVE1500FT]:
             self.recommended_frequency = AirbusFlightPhase.CRUIZE_ACQUISITION
-        if self.current.phase in [AIRBUS_PHASE.ACCEL80KT, AIRBUS_PHASE.LIFTOFF, AIRBUS_PHASE.DECEL80KT, AIRBUS_PHASE.TOUCHDOWN]:
+        elif self.current.phase in [AIRBUS_PHASE.ACCEL80KT, AIRBUS_PHASE.LIFTOFF, AIRBUS_PHASE.DECEL80KT, AIRBUS_PHASE.TOUCHDOWN]:
             self.recommended_frequency = AirbusFlightPhase.FAST_ACQUISITION
         if before != self.recommended_frequency:
             self.debug(f"flight_phase: adjusted collection frequency {before} > {self.recommended_frequency}", force=True)
@@ -786,20 +821,20 @@ class AirbusFlightPhase:
             self._initial_phase = self.current
             self._inited = True
             self.debug(f"flight_phase/init: {message}")
-            self.debug(f"flight_phase: initialized to {self.current.phase.name}", force=True)
+            self.debug(f"flight_phase: initialized to {self.current.phase.name} (ecam={self.ecam_flight_phase_str})", force=True)
             return self.current
 
         def next_phase():
             new_phase = FlightPhase(phase=AIRBUS_PHASE((self.current.phase.value + 1) % 12), when=dt)
             msg = "" if self._inited else "flight_phase/init: "
-            self.debug(f"{msg}{self.current.phase.name} > {new_phase.phase.name} at {dt.replace(microsecond=0)}", force=True)
+            self.debug(f"{msg}{self.current.phase.name} > {new_phase.phase.name} at {dt.replace(microsecond=0)} (ecam={self.ecam_flight_phase_str})", force=True)
             self._sequence.append(new_phase)
             self.current = new_phase
             self.set_frequency()
 
         def set_phase(phase: AIRBUS_PHASE, message) -> FlightPhase:
             new_phase = FlightPhase(phase=phase, when=dt)
-            self.debug(f"flight_phase/init: SET > {new_phase.phase.name} at {dt.replace(microsecond=0)}", force=True)
+            self.debug(f"flight_phase/init: SET > {new_phase.phase.name} at {dt.replace(microsecond=0)} (ecam={self.ecam_flight_phase_str})", force=True)
             self._sequence.append(new_phase)
             self.current = new_phase
             self.set_frequency()
@@ -810,7 +845,7 @@ class AirbusFlightPhase:
             # msg = f"flight_phase/abnormal: {message}: "
             msg = f"flight_phase/abnormal: {message}: ** ABNORMALITY REPORTED BUT NO FLIGHT PHASE CHANGE **: "
             self.status(force=self.abnormal_flag)
-            self.debug(f"{msg}{self.current.phase.name} > {new_phase.phase.name} at {dt.replace(microsecond=0)}", force=True)
+            self.debug(f"{msg}{self.current.phase.name} > {new_phase.phase.name} at {dt.replace(microsecond=0)} (ecam={self.ecam_flight_phase_str})", force=True)
             # self._sequence.append(new_phase)
             # self.current = new_phase
             # self.set_frequency()
