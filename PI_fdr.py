@@ -78,6 +78,7 @@ CHANGELOG
 2.1.2 16-OCT-2026 Fixed aircraft delayed loading
 2.1.3 16-OCT-2026 Added global phase status reporting in case of abnormal phase changes
 2.1.4 16-OCT-2026 For airbus: Detect caution/warning and increase sampling rate during crisis up to 60 seconds after
+2.1.5 20-OCT-2026 Code cleanup, blackened
 
 """
 
@@ -146,13 +147,15 @@ FDR_VERSION = 4  # 3 or 4
 FDR_ARCH = "A"  # APPLE or "I" IBM
 
 SHOW_TRACE = False
+
 WRITE_FREQUENCY = 10.0  # seconds
 REPORT_FREQUENCY = 100  # number of writes before logging
+
 AUTOSTART = True
 AUTOSTART_FREQUENCY = 10.0  # secs
 AUTOSTART_THRESHOLD = 2.0  # m/s
 AUTOSTOP_THRESHOLD = 600.0  # seconds
-AIRBUSPHASE = False
+
 WRITE_ASAP = True
 
 LINREG_LEN = 10  # number of points in linear regression
@@ -163,6 +166,8 @@ UTC_TIME = "UTC Time"  # rendez-vous string
 MIN_SPEED = 1.0  # m/s, below that speed is stopped
 MIN_LIFTOFF_AGL = 10.0  # m  > means in air, AGL is CG of aircraft, != 0 when on ground.
 MAX_LANDING_AGL = 30.0  # m  < means on the ground (almost)
+
+AIRBUSPHASE = False
 
 
 # Helpers and data class container
@@ -258,7 +263,7 @@ class AIRCRAFT_MOVEMENT(IntEnum):
 
 @dataclass
 class FDRData:
-    # Definition of a data collected from the simulator
+    # """Definition of a data collected from the simulator"""
     name: str  # tail number
     dataref: str  # sim/aircraft/view/acf_tailnum
     pyslice: slice | None = None
@@ -485,33 +490,9 @@ class NAVAID_TYPE(IntEnum):
 
 
 @dataclass
-class NavAid:
-    name: str
-    lat: float
-    lon: float
-    navType: NAVAID_TYPE
-    navAidId: str
-    height: float = 0.0
-    heading: float = 0.0
-    frequency: int = 0  # / 100
-    reg: bool = False
-
-
-@dataclass
-class Command:
-    """Records execution of a command"""
-    dataref: str
-    when: str
-    index: int
-    phase: list
-    before: int
-    name: str = ""
-    chart: str = "Commands"  # used in chart grouping
-
-
-@dataclass
 class FDRCommand:
-    # Definition of a command collected from the simulator
+    """Definition of a command collected from the simulator"""
+
     name: str  # Start or stop FD recording
     dataref: str  # xppython3/fdr/start_stop_toggle
     phase: int | list = 2  # might be interested in phase 0, 1 or/and 2.
@@ -563,7 +544,35 @@ class FDRCommand:
             print(f"{NAME} {VERSION}::FDRCommand.stop_logging: uninstalled {self.dataref}")
 
 
-# Collected once for session, displayed in FDR report header
+@dataclass
+class NavAid:
+    """Record data about encountered navaid"""
+
+    name: str
+    lat: float
+    lon: float
+    navType: NAVAID_TYPE
+    navAidId: str
+    height: float = 0.0
+    heading: float = 0.0
+    frequency: int = 0  # / 100
+    reg: bool = False
+
+
+@dataclass
+class Command:
+    """Records execution of a command"""
+
+    dataref: str
+    when: str
+    index: int
+    phase: list
+    before: int
+    name: str = ""
+    chart: str = "Commands"  # used in chart grouping
+
+
+# Collected once per session, displayed in FDR report header
 FDR_HEADER = [
     FDRData(name="ACFT", dataref="sim/aircraft/view/acf_relative_path"),
     FDRData(name="TAIL", dataref="sim/aircraft/view/acf_tailnum"),
@@ -596,7 +605,7 @@ FDR_DATA = [
 ]
 
 FDR_COMMANDS = [FDR_RESET_COMMAND]  # supplied for testing...
-# Through preferences, user can add a set of fdr_data datarefs or commands to monitor
+# Through preferences, user can add a set of fdr_data datarefs or fdr_commands to monitor
 
 # Datarefs that contains frequencies to scan for nav aids
 NAVAID_FREQUENCIES = [
@@ -606,7 +615,7 @@ NAVAID_FREQUENCIES = [
     FDRData.new(config="sim/cockpit/radios/nav1_freq_hz"),
     FDRData.new(config="sim/cockpit/radios/nav2_freq_hz"),
 ]
-# Through preferences, user can add a set of additional frequencies to scan
+# Through preferences, user can add a set of additional dataref containing frequencies to scan
 
 
 # #############################################################################
@@ -614,7 +623,7 @@ NAVAID_FREQUENCIES = [
 # A I R B U S   F L I G H T   P H A S E
 #
 # Airbus Flight Phase specific thresholds
-# S.I., for A321, may need adjustment on acf model, engines, etc. We'll see later
+# S.I., for A321, may need adjustment on acf model, engines, etc.
 #
 # Why Airbus flight phase?
 # Logging can record numerous data often.
@@ -622,6 +631,7 @@ NAVAID_FREQUENCIES = [
 # Faster collection on takeoff, approach, landing, slower collection on cruise, when stopped...
 #
 
+# Thresholds
 S80KT = 80 * 0.5144444  # m/s
 FAST = 500  # 1 Mach = 340.29m/s, sea level
 A1500FT = 1500 * 0.3048  # m
@@ -716,6 +726,8 @@ class AirbusFlightPhase:
     @property
     def valid(self) -> bool:
         needed = [
+            "AirbusFBW/MasterCaut",  # Added to raise "alarm" mode (increased monitoring)
+            "AirbusFBW/MasterWarn",
             "AirbusFBW/ECAMFlightPhase",  # ecam_flight_phase, not formally required, but used to test ToLiss
             "AirbusFBW/EngineThrust_N",  # eng_pwr
             "sim/cockpit2/switches/avionics_power_on",  # elec_pwr
@@ -750,7 +762,7 @@ class AirbusFlightPhase:
     # Shortcuts to situations
     @property
     def in_air(self) -> bool:
-        return self.get_value("agl", MIN_AGL/2) > MIN_AGL and not self.stopped
+        return self.get_value("agl", MIN_AGL / 2) > MIN_AGL and not self.stopped
 
     @property
     def stopped(self) -> bool:
@@ -793,7 +805,7 @@ class AirbusFlightPhase:
             if self.recommended_frequency != AirbusFlightPhase.ALARM_ACQUISITION:
                 before = self.recommended_frequency
                 self.recommended_frequency = AirbusFlightPhase.ALARM_ACQUISITION
-                self.debug(f"flight_phase: adjusted collection frequency {before} > {self.recommended_frequency}", force=True)
+                self.debug(f"check_alarm: adjusted collection frequency {before} > {self.recommended_frequency}", force=True)
             return True
         if self.alarm_time is None:
             return False
@@ -813,7 +825,7 @@ class AirbusFlightPhase:
         elif self.current.phase in [AIRBUS_PHASE.ACCEL80KT, AIRBUS_PHASE.LIFTOFF, AIRBUS_PHASE.DECEL80KT, AIRBUS_PHASE.TOUCHDOWN]:
             self.recommended_frequency = AirbusFlightPhase.FAST_ACQUISITION
         if before != self.recommended_frequency:
-            self.debug(f"flight_phase: adjusted collection frequency {before} > {self.recommended_frequency}", force=True)
+            self.debug(f"set_frequency: adjusted collection frequency {before} > {self.recommended_frequency}", force=True)
 
     def flight_phase(self, dt: datetime) -> FlightPhase:
 
@@ -844,7 +856,7 @@ class AirbusFlightPhase:
             new_phase = FlightPhase(phase=phase, when=dt)
             # msg = f"flight_phase/abnormal: {message}: "
             msg = f"flight_phase/abnormal: {message}: ** ABNORMALITY REPORTED BUT NO FLIGHT PHASE CHANGE **: "
-            self.status(force=self.abnormal_flag)
+            self.status(force=True)
             self.debug(f"{msg}{self.current.phase.name} > {new_phase.phase.name} at {dt.replace(microsecond=0)} (ecam={self.ecam_flight_phase_str})", force=True)
             # self._sequence.append(new_phase)
             # self.current = new_phase
@@ -972,16 +984,26 @@ class AirbusFlightPhase:
                 return set_phase(phase=AIRBUS_PHASE.ELECPOWER, message="five minute after engine shutdown, electrically powered")
 
         # ABNORMAL PHASE CHANGES
-        # Case by case, too difficult to make it "generic"
-
-        # No more electrical power?
+        # Checked case by case, too difficult to make it "generic"
+        # Phases are measured thank to the following values:
+        #
+        # "AirbusFBW/EngineThrust_N",  # eng_pwr
+        # "sim/cockpit2/switches/avionics_power_on",  # elec_pwr
+        # "sim/flightmodel2/position/groundspeed",  # gs
+        # "sim/flightmodel2/position/y_agl",  # agl
+        #
+        # Abnormallity: For a given phase, one of this values is not within accepted range of values for state
+        #
         self.abnormal_flag = True
 
+        # No more electrical power?
         if self.current.phase not in [AIRBUS_PHASE.OFF, AIRBUS_PHASE.ELECPOWER] and self.test_off():
             abnormal(phase=AIRBUS_PHASE.OFF, message="no more electrically power?")
 
         # No more engine?
-        if self.current.phase in [
+        if (
+            self.current.phase
+            in [
                 AIRBUS_PHASE.FIRSTENGSTARTED,
                 AIRBUS_PHASE.FIRSTENGTOPOWER,
                 AIRBUS_PHASE.ACCEL80KT,
@@ -989,11 +1011,18 @@ class AirbusFlightPhase:
                 AIRBUS_PHASE.ABOVE1500FT,
                 AIRBUS_PHASE.BELOW800FT,
                 AIRBUS_PHASE.TOUCHDOWN,
-                AIRBUS_PHASE.DECEL80KT
-            ] and self.test_shutdown():
+                AIRBUS_PHASE.DECEL80KT,
+            ]
+            and self.test_shutdown()
+        ):
             abnormal(phase=AIRBUS_PHASE.SECONDENGSHUTDOWN, message="both engine off?")
 
+        # No more velocity, stopped?
+        # No more altitude, crashed?
+
         self.abnormal_flag = False
+        #
+        # end of abnormal condition checks
 
         return self.current
 
@@ -2264,8 +2293,8 @@ class PythonInterface:
         # Cycle through registered frequencies and nav aid types; record newly encountered ones
         # Notes:
         #  - NDB frequencies are exact, all others are multiplied by 100
-        def add_navaid(n, f:int | None = None):
-            if n != xp.NAV_NOT_FOUND and n != self._last_navaid_id:   # returns last found if not found...
+        def add_navaid(n, f: int | None = None):
+            if n != xp.NAV_NOT_FOUND and n != self._last_navaid_id:  # returns last found if not found...
                 self._last_navaid_id = n
                 d = xp.getNavAidInfo(n)
                 t = NAVAID_TYPE(d.type).name
