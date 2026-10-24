@@ -38,6 +38,7 @@ When recording, FDR detects and logs nearby navigation aids.
 FDR logs navaids around the aircraft and navaids used by the aircraft
 by finding them through their frequencies.
 FDR logs navaids of type VOR, DME, NDB, fixes, and airports.
+It logs their identifier, location, nav aid type as comments in the FDR log file.
 
 
 ## Output
@@ -52,10 +53,10 @@ Expect a few MB per hour or flight.
 
 ### FDR File Format
 
-FDR files slightly diverge from "formal" FDR v4 format
+FDR files slightly diverge from _formal_ FDR v4 format
 by allowing a fractional part to seconds (milliseconds or microseconds)
 for more precision.
-Also, time between two collections may vary.
+Also, time between two collections may vary and is not necessarily uniform.
 (It is dynamically adjusted based on flight phase.)
 
 
@@ -278,7 +279,7 @@ When the plugin is installed, this occurs automatically without user interaction
 In summary, if you install XPPython3 plugin and drop this PI_fdr.py script into it,
 you will have permanent _«black box»_ function all the time.
 Resolution will be minimal (every 10 seconds).
-Data will be minimal as well (lat, lon, alt, speed, heading, pitch, roll).
+Data will be minimal as well (lat, lon, altitude (MSL), speed, heading, pitch, roll, ground speed, elevation (AGL)).
 
 If you'd like finer resolution and a few more datarefs,
 drop them in a global preference file.
@@ -299,7 +300,7 @@ with ability to revive the flights you made.
 There is a specific set up and behevior for ToLiss Airbus aircrafts.
 It automatically sets up when such an aircraft is detected.
 
-[Please see here for details.](https://github.com/devleaks/xpfdr/blob/main/README_TOLISS_AIRBUS.md)
+[Please see here for details.](toliss.md)
 
 
 ### Mandatory Data
@@ -353,11 +354,17 @@ one column per additional data.
 Flight Data Recorder is a X-Plane plugin written in python.
 It needs [XPPython3](https://xppython3.readthedocs.io/en/latest/) X-Plane plugin to run.
 
-Install `PI_fdr.py` file in `<X-Plane 12 Folder>/Resources/plugins/PythonPlugins`.
+Install `PI_fdr` folder in `<X-Plane 12 Folder>/Resources/plugins/PythonPlugins`.
 Reload scripts in XPPython3 through the Plugin menu entry.
+
+The PI_fdr folder contains the main script file (`PI_fdr.py`, a sample preference file,
+and a `skunkcrafts_updater.txt` file.)
 
 On first start, or after XPPython3 upgrades, the script may download missing python package like Yaml.
 When completed, simply reload XPPython3 script again.
+
+PI_fdr folder also contains a `skunkcrafts_updater.txt` file which will allow
+for easier script maintenance.
 
 
 ## Reader

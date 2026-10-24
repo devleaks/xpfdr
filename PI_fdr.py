@@ -490,6 +490,19 @@ class NAVAID_TYPE(IntEnum):
 
 
 @dataclass
+class Command:
+    """Records execution of a command"""
+
+    dataref: str
+    when: str
+    index: int
+    phase: list
+    before: int
+    name: str = ""
+    chart: str = "Commands"  # used in chart grouping
+
+
+@dataclass
 class FDRCommand:
     """Definition of a command collected from the simulator"""
 
@@ -553,23 +566,11 @@ class NavAid:
     lon: float
     navType: NAVAID_TYPE
     navAidId: str
+    ts: str  # simulator time of discovery
     height: float = 0.0
     heading: float = 0.0
     frequency: int = 0  # / 100
     reg: bool = False
-
-
-@dataclass
-class Command:
-    """Records execution of a command"""
-
-    dataref: str
-    when: str
-    index: int
-    phase: list
-    before: int
-    name: str = ""
-    chart: str = "Commands"  # used in chart grouping
 
 
 # Collected once per session, displayed in FDR report header
@@ -785,6 +786,9 @@ class AirbusFlightPhase:
     def report(self) -> str:
         return f"current phase is {self.current.phase.name} since {self.current.when.isoformat()}"
 
+    def report_initial(self) -> str:
+        return f"initial phase {self._initial_phase.phase.name} at {self._initial_phase.when.isoformat()}"
+
     def history(self) -> str:
         h = []
         for p in self._sequence:
@@ -826,6 +830,138 @@ class AirbusFlightPhase:
             self.recommended_frequency = AirbusFlightPhase.FAST_ACQUISITION
         if before != self.recommended_frequency:
             self.debug(f"set_frequency: adjusted collection frequency {before} > {self.recommended_frequency}", force=True)
+
+    def guess_phase(self, current_phase: AIRBUS_PHASE) -> AIRBUS_PHASE:
+
+        def return_current(message) -> AIRBUS_PHASE:
+            self.debug(f"guess_phase: GUESSED {current_phase.name}")
+            return current_phase
+
+        def next_phase():
+            new_phase = AIRBUS_PHASE((current_phase.value + 1) % 12)
+            self.debug(f"guess_phase: {current_phase.name} > {new_phase.name}")
+            return new_phase
+
+        def set_phase(phase: AIRBUS_PHASE, message) -> AIRBUS_PHASE:
+            self.debug(f"guess_phase: SET > {phase.name}")
+            return phase
+
+        def abnormal(phase: AIRBUS_PHASE, message) -> AIRBUS_PHASE:
+            self.status(force=True)
+            self.debug(f"guess_phase: ABNORMAL: {message}:{current_phase.name} > {phase.name}?", force=True)
+            return current_phase
+
+        change_phase = self.AIRBUS_PROCESS[current_phase]
+        if change_phase():
+            return self.guess_phase(next_phase())
+
+        self.debug(f"guess_phase: current={current_phase.name}, air time={self.had_air_time()}")
+        if current_phase == AIRBUS_PHASE.FIRSTENGSTARTED and self.test_engpwr():
+            return next_phase()
+        if current_phase == AIRBUS_PHASE.FIRSTENGTOPOWER and self.get_value("gs", 0) > S80KT:
+            return next_phase()
+        if current_phase == AIRBUS_PHASE.FIRSTENGTOPOWER:
+            ## GREY MATTER: Less than 80KT. Stopped?
+            if self.get_value("gs", FAST) < MIN_SPEED:  # Engine on and stopped
+                # are we stopped before the flight or after the flight?
+                if self.had_air_time():
+                    return set_phase(phase=AIRBUS_PHASE.DECEL80KT, message="stopped and had air time")  # wait for engine to stop
+                return current_phase
+            ## DARK GREY MATTER: Less than 80KT and not stopped: Accelerating or decelerating?
+            if self.speed_regression_reliable:
+                if self.spd_reg()[0] > 0.0:  # taxiing or accelerating, we will eventually reach 80kt
+                    return return_current("not stopped, accelerating")
+                # Decelerating: taxiing or end of roll?
+                if self.had_air_time():  # we landed, we are aleady under 80kt
+                    return set_phase(phase=AIRBUS_PHASE.DECEL80KT, message="not stopped, decelerating, had air time")
+            # We cannot decide now, we are not _inited, wait for more speed stats
+            self.debug("guess_phase: speed regression unreliable")
+            return current_phase
+
+        if current_phase == AIRBUS_PHASE.ACCEL80KT and self.get_value("agl", 0) > MIN_AGL:
+            return next_phase()
+
+        if current_phase == AIRBUS_PHASE.ACCEL80KT and self.had_air_time():  # just landed
+            return set_phase(phase=AIRBUS_PHASE.LANDING, message=f"had air time, below {MIN_AGL}m, above 80kt")
+
+        if current_phase == AIRBUS_PHASE.LIFTOFF and self.get_value("agl", 0) > A1500FT:
+            current_phase = next_phase()
+            return return_current("flying above 1500FT")  # we're above 1500ft, we cannot say much now
+
+        if current_phase == AIRBUS_PHASE.LIFTOFF:
+            ## GREY MATTER: Less than 1500FT, but in the air...
+            if self.altitude_regression_reliable:
+                if self.alt_reg()[0] > 0:  # climbing, we will eventually reach >1500ft
+                    return return_current("lifted off, climbing")
+                # Descending
+                if self.get_value("agl", 0) > A800FT:  # we're between 1500 and 800ft, descending, we will eventually reach <800ft
+                    return set_phase(phase=AIRBUS_PHASE.ABOVE1500FT, message="descending, between 800 and 1500ft")
+                # Just touching down
+                if self.get_value("agl", A1500FT) < MIN_AGL:  # descending, we're below MAX_LANDING_AGL, we'll touch down
+                    return set_phase(phase=AIRBUS_PHASE.LANDING, message=f"descending, below {MIN_AGL}")
+                if self.get_value("agl", A1500FT) < A800FT:  # we're between 800ft and MAX_LANDING_AGL, descending, we already passed 800ft going down
+                    return set_phase(phase=AIRBUS_PHASE.BELOW800FT, message=f"descending, between 800 and {MIN_AGL}")
+            self.debug("guess_phase: altitude regression unreliable")
+            return current_phase
+
+        if not self.test_engpwr() and self.had_air_time():
+            return set_phase(phase=AIRBUS_PHASE.SECONDENGSHUTDOWN, message="no power, had air time, cooling down 5 min")  # wait for five minutes
+
+        if current_phase == AIRBUS_PHASE.ABOVE1500FT and self.get_value("agl", A1500FT) < A800FT:
+            return next_phase()
+        if current_phase == AIRBUS_PHASE.BELOW800FT and self.get_value("agl", A1500FT) < MIN_AGL:
+            return next_phase()
+        if current_phase == AIRBUS_PHASE.TOUCHDOWN and self.get_value("gs", FAST) < S80KT:
+            return next_phase()
+        if current_phase == AIRBUS_PHASE.DECEL80KT and self.test_shutdown():
+            return next_phase()
+        if current_phase == AIRBUS_PHASE.SECONDENGSHUTDOWN and self.test_fiveminafter():
+            return next_phase()
+        if current_phase == AIRBUS_PHASE.FIVEMINAFTER:
+            if self.test_off():
+                return next_phase()
+            else:  # we remain electrically powered at least
+                return set_phase(phase=AIRBUS_PHASE.ELECPOWER, message="five minute after engine shutdown, electrically powered")
+
+        # ABNORMAL PHASE CHANGES
+        # No more electrical power?
+        if self.current.phase not in [AIRBUS_PHASE.OFF, AIRBUS_PHASE.ELECPOWER, AIRBUS_PHASE.FIVEMINAFTER] and self.test_off():
+            return abnormal(phase=AIRBUS_PHASE.OFF, message="no more electrically power?")
+
+        # No more engine?
+        if (
+            self.current.phase
+            in [
+                AIRBUS_PHASE.FIRSTENGSTARTED,
+                AIRBUS_PHASE.FIRSTENGTOPOWER,
+                AIRBUS_PHASE.ACCEL80KT,
+                AIRBUS_PHASE.LIFTOFF,
+                AIRBUS_PHASE.ABOVE1500FT,
+                AIRBUS_PHASE.BELOW800FT,
+                AIRBUS_PHASE.TOUCHDOWN,
+                AIRBUS_PHASE.DECEL80KT,
+            ]
+            and self.test_shutdown()
+        ):
+            return abnormal(phase=AIRBUS_PHASE.SECONDENGSHUTDOWN, message="both engine off?")
+
+        # Check: Accel above 80kt then below (no LIFTOFF)
+        if current_phase == AIRBUS_PHASE.ACCEL80KT and self.get_value("gs", 0) < S80KT:  # and test_decel80kt()?
+            return abnormal(phase=AIRBUS_PHASE.FIRSTENGTOPOWER, message="no liftoff after reaching 80kt, abort takeoff?")
+
+        # Check: Decel below 80kt then go around
+        if current_phase == AIRBUS_PHASE.DECEL80KT and self.get_value("gs", 0) > S80KT:  # and test_accel80kt()?
+            return abnormal(phase=AIRBUS_PHASE.ACCEL80KT, message="no decel below 80kt, going around?")
+
+        # TO DO
+        #
+        # Check: Go above 1500ft, then below, then back above
+        # Check: Go below 800ft, then back above, then back below
+        # No more velocity, stopped?
+        # No more altitude, crashed?
+
+
+        return return_current("all conditions failed")
 
     def flight_phase(self, dt: datetime) -> FlightPhase:
 
@@ -967,23 +1103,31 @@ class AirbusFlightPhase:
             set_inited("all conditions failed")
         #
         # ####################
+        #
+        # Now we are inited
 
-        # Now we are inited, if flight is ended (FIVEMINAFTER),
-        # from that stage we may cycle:
-        #  - We may jump to OFF
-        #  - We may remain electrically powered and start the next flight
+        #
+        # SPECIAL (normal) PHASE CHANGES
+        #
 
+        # if aircraft is electrically powered (phase=FIVEMINAFTER),
+        #  - We may switch to OFF
         if self.current.phase == AIRBUS_PHASE.ELECPOWER and self.test_off():
             return set_phase(phase=AIRBUS_PHASE.OFF, message="no longer electrically powered")
 
+        # if flight is ended (phase=FIVEMINAFTER),
+        #  - We may jump to OFF
+        #  - We may remain electrically powered and start the next flight
         if self.current.phase == AIRBUS_PHASE.FIVEMINAFTER:
-            if self.test_off():
+            if self.test_off():  # normal sequence
                 next_phase()
                 return self.flight_phase(dt=dt)
-            else:  # we remain electrically powered at least
+            else:  # we remain electrically powered, ready for next flight or power off
                 return set_phase(phase=AIRBUS_PHASE.ELECPOWER, message="five minute after engine shutdown, electrically powered")
 
+        #
         # ABNORMAL PHASE CHANGES
+        #
         # Checked case by case, too difficult to make it "generic"
         # Phases are measured thank to the following values:
         #
@@ -994,10 +1138,17 @@ class AirbusFlightPhase:
         #
         # Abnormallity: For a given phase, one of this values is not within accepted range of values for state
         #
+
+        # This is a first sanity check
+        guessed_phase = self.guess_phase(AIRBUS_PHASE.OFF)
+        if self._inited and guessed_phase != self.current.phase:
+            self.debug(f"flight_phase: current phase {self.current.phase.name} and guessed phase {guessed_phase.name} differ", force=True)
+
+        #
         self.abnormal_flag = True
 
         # No more electrical power?
-        if self.current.phase not in [AIRBUS_PHASE.OFF, AIRBUS_PHASE.ELECPOWER] and self.test_off():
+        if self.current.phase not in [AIRBUS_PHASE.OFF, AIRBUS_PHASE.ELECPOWER, AIRBUS_PHASE.FIVEMINAFTER] and self.test_off():
             abnormal(phase=AIRBUS_PHASE.OFF, message="no more electrically power?")
 
         # No more engine?
@@ -2119,7 +2270,7 @@ class PythonInterface:
             return
         self.fdr_new_line()
         if self.use_airbus and self._afp._inited:
-            self.fdr_comment(f"INFO Airbus flight phase {self._afp.current.phase.name}")
+            self.fdr_comment(f"INFO Airbus {self._afp.report()} ({self._afp.report_initial()})")
         else:
             self.aircraft_movement = self.guessed_aircraft_movement  # provoque update
             self.fdr_comment(f"INFO Flight state {self.aircraft_movement.name}")
@@ -2176,6 +2327,10 @@ class PythonInterface:
         for d in self.fdr_all_data_values:
             self.fdr_comment(f"{d.fun()}")
 
+        self.fdr_new_line()
+        for c in self.fdr_commands.values():
+            self.fdr_comment(str(c))
+
         # Additional comments
         self.start_situation()
 
@@ -2231,8 +2386,8 @@ class PythonInterface:
                 self.file.flush()
                 if self.report_frequency > 0 and self.writes % self.report_frequency == 0:
                     self.debug(f"loop: at {self.simulator_zulu_datetime.strftime('%H:%M:%S')} {self.writes} events since {self.start_time.strftime('%H:%M:%S')}", force=True)
-                    if self._afp:
-                        self.debug(f"loop: at {self.simulator_zulu_datetime.strftime('%H:%M:%S')} airbus flight phase is {self._afp.report()}", force=True)
+                    if self._afp and self._afp._inited:
+                        self.debug(f"loop: Airbus {self._afp.report()}", force=True)
             else:
                 self.debug("loop: no fdr file", force=True)
         except Exception as e:
@@ -2271,11 +2426,14 @@ class PythonInterface:
             xp.checkMenuItem(xp.findPluginsMenu(), self.menuIdx, 1)
             self.recorderFL = None
             if self.file is not None:
+                self.fdr_new_line()
                 self.fdr_write_oooi()
                 if not WRITE_ASAP:
+                    self.fdr_new_line()
                     self.save_command_execution()
                     self.save_navaids()
                 if self.use_airbus:
+                    self.fdr_new_line()
                     self._afp.save(file=self.file)
                 self.fdr_new_line()
                 st = self.simulator_zulu_datetime.isoformat()
@@ -2305,6 +2463,7 @@ class PythonInterface:
                         navType=NAVAID_TYPE(d.type),
                         lat=d.latitude,
                         lon=d.longitude,
+                        ts=self.simulator_zulu_datetime.isoformat(),
                         height=d.height,
                         frequency=d.frequency,
                         heading=d.heading,

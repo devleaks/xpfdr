@@ -350,6 +350,7 @@ class FDRReader:
                         "heading": round(n.heading, 1),
                         "frequency": n.frequency / 100,
                         "reg": n.reg,
+                        "ts": n.ts,
                     },
                 }
             )
