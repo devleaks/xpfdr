@@ -1,0 +1,831 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+      
+      
+        <link rel="next" href="viewer/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Flight Data Recorder</title>
+      
+    
+    
+      <link rel="stylesheet" href="assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="css/timeago.css">
+    
+      <link rel="stylesheet" href="assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#flight-data-recorder-for-x-plane" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="." title="Flight Data Recorder" class="md-header__button md-logo" aria-label="Flight Data Recorder" data-md-component="logo">
+      
+  <img src="record.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Flight Data Recorder
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Welcome
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="lime"  aria-label="Switch to system preference"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to system preference" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="." title="Flight Data Recorder" class="md-nav__button md-logo" aria-label="Flight Data Recorder" data-md-component="logo">
+      
+  <img src="record.svg" alt="logo">
+
+    </a>
+    Flight Data Recorder
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="." class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="viewer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Viewer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="toliss/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ToLiss Airbus
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="toml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TOML formatter preferences
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="flight-data-recorder-for-x-plane">Flight Data Recorder for X-Plane</h1>
+<p>Flight Data Recorder is a customizable flight data recording plugin for X-Plane flight simulator.
+It generates X-Plane FDR files from a running flight.
+It records both dataref values and command executions.</p>
+<p>Emphasis of this recorder is to collect data and display it in a FDR viewer,
+not to replay the flight althought it remains possible to do so.</p>
+<h1 id="usage">Usage</h1>
+<p>The plugin installs a supervisor process that determines if the FDR recording needs to occur.</p>
+<p>In its simplest form, recording automatically starts when aircraft movement is detected,
+and stops when there is no aircraft movement for 10 minutes.</p>
+<p>Alternatively, it is possible to manually start and stop the recording through the <em>Start or stop FDR</em> Plugin Menu entry.
+An <em>enabled</em> marker (white dot) sits in front of the menu entry when the recorder is running.
+When the recording is started manually through the menu entry,
+it must be stopped manually by the menu entry,
+it will <em>not</em> be stopped automatically.</p>
+<p>(Note: The opposite is not true. If the plugin is stopped manually,
+but FDR determines it should run, a new recording session will be started right away.
+If this behavior is not acceptable, you should add a <code>autostart: false</code> preference.
+If autostart is set to false, the plugin will never start or stop automatically,
+only on manual entries from the menu. See below.)</p>
+<p><img alt="On/Off Marker" src="images/rec.png" /></p>
+<p>It is possible to bind the <em>Start or stop FDR</em> command to a cockpit or joystick button.</p>
+<p>When recording, FDR detects and logs nearby navigation aids.
+FDR logs navaids around the aircraft and navaids used by the aircraft
+by finding them through their frequencies.
+FDR logs navaids of type VOR, DME, NDB, fixes, and airports.
+It logs their identifier, location, nav aid type as comments in the FDR log file.</p>
+<h2 id="output">Output</h2>
+<p>FDR recording files are stored in the <code>&lt;X-Plane 12 Folder&gt;/Output/fdr/</code> folder.
+Files are named after the start time of the record.</p>
+<p>Depending on the collection frequency, the number of data collected, etc.
+it is difficult to estimate the size of a recording.
+Expect a few MB per hour or flight.</p>
+<h3 id="fdr-file-format">FDR File Format</h3>
+<p>FDR files slightly diverge from <em>formal</em> FDR v4 format
+by allowing a fractional part to seconds (milliseconds or microseconds)
+for more precision.
+Also, time between two collections may vary and is not necessarily uniform.
+(It is dynamically adjusted based on flight phase.)</p>
+<h3 id="fdr-meta-data">FDR Meta Data</h3>
+<p>In addition to mandatory information in the record file,
+FDR stores meta data information for further processing and handling.
+Meta data is saved as a FDR record COMMent and can be ignored.
+Meta Data is used, for example, by the FDR reader.</p>
+<p>In the FDR record file, the recorder writes</p>
+<ul>
+<li>Mandatory meta data</li>
+<li>Meta data about the requested dataref (units, sizes, etc.)</li>
+<li>The list of units for each column in the record</li>
+<li>A list of columns names for the record</li>
+<li>The start and stop date/time of the recording in both simulator UTC time and computer local time.</li>
+</ul>
+<p>Information is written as comments before the data records.</p>
+<p>End of recording also write a few more meta data like end of recording date and time,
+and some summary information like number of records,
+and flight status information if available (OOOI).</p>
+<h2 id="recording-preferences">Recording Preferences</h2>
+<p>On startup, FDR locates and loads preferences stored in a preference file.
+Preferences are configuration values (like the frequency of the collection, etc.)
+and the list of X-Plane datarefs to be monitored.</p>
+<p>There can be several preference files in X-Plane, one per aircraft, and a generic global one.</p>
+<p>FDR first look for a aircraft specific FDR preference file in the home directory of an aircraft
+<code>&lt;X-Plane 12 Folder&gt;/Aircraft/.../myaircraft/fdr.prf</code>.
+This allows for recording <em>aircraft-specific</em> data.
+This is very convenient as values recorded for a smaller GA or a larger airliner may differ.
+(When the aircraft is changed, its preferences are unloaded and the preferences of the new aircraft are loaded.)</p>
+<p>If no aircraft specific preference file is found, FDR look in X-Plane Preference folder
+<code>&lt;X-Plane 12 Folder&gt;/Output/preferences/fdr.prf</code>.
+This preference file should only contain generic data, not specific to particular aircraft.</p>
+<p>The preference file is a Yaml-formatted readable text file structured as follow:</p>
+<pre><code class="language-yaml">fdr_arch: APPLE
+description: Demonstration preference file
+frequency: 5
+report_frequency: 100
+chocks: AirbusFBW/Chocks
+commands:
+  - sim/map/show_current
+  - name: Caution
+    dataref: sim/annunciator/clear_master_wcaution
+    before: 1
+    phase: [0, 2]
+  - name: Warning
+    dataref: sim/annunciator/clear_master_warning
+    before: 0
+    phase: 2
+fdr_info:
+  - name: aircraft_icao
+    dataref: sim/aircraft/view/acf_ICAO
+fdr_data:
+  - name: true_air_speed
+    dataref: sim/flightmodel/position/true_airspeed
+    unit: m/s
+    chart: Speeds
+  - name: vertical_speed
+    dataref: sim/cockpit2/gauges/indicators/vvi_fpm_pilot
+    unit: m/s # dataref is ft/min, converted by callback
+    callback: ${x} 0.00508 *
+    chart: Speeds
+</code></pre>
+<ul>
+<li>
+<p><code>fdr_arch</code> identifies the FDR file architecture, either APPLE or IBM. Used to determine line termitors.
+    (CR for APPLE, CR+LF for IBM.)</p>
+</li>
+<li>
+<p><code>description</code> is an information field used in the log file to identify the preferences used.</p>
+</li>
+<li>
+<p><code>frequency</code> is the time, in seconds, between 2 data collection.</p>
+</li>
+<li>
+<p><code>report_frequency</code> is the number of data collections reported in the log file.
+    It allows for simple monitoring of the data collection process.
+    Above, every 100 records, a message is written into log.txt.</p>
+</li>
+<li>
+<p><code>chocks</code> is a dataref name that will be used to check whether chocks are set (non zero value) or not (zero value).</p>
+</li>
+<li>
+<p><code>fdr_info</code> is a list of <em>Data Definition</em> to identy a dataref value that is fetched only <em>once</em>
+   at the start of the recording.
+   The value is saved as a comment in the header file of the recording.
+   Example of FDR info fields may include departure and arrival airport, weather information...
+   as long as the data is available as a dataref.</p>
+</li>
+<li>
+<p><code>fdr_data</code> is a list of <em>Data Definition</em> that are collected and reported.</p>
+</li>
+<li>
+<p><code>commands</code> is a list of commands, expressed as X-Plane path or <em>Command Definition</em> structure.
+    The execution of any of these command in logged.</p>
+</li>
+</ul>
+<h3 id="collected-data-definition">Collected <em>Data Definition</em></h3>
+<p>Collected data is described by the following fields:</p>
+<ul>
+<li><code>name</code>: Name of the data field, used as a column header in the FDR file. Mandatory.</li>
+<li><code>dataref</code>: Name of dataref, its value is part of the data record. Mandatory.</li>
+<li><code>units</code>: Information field of dataref value unit. Saved as a comment in the header of the record file.
+     Optional but highly recommanded.</li>
+<li><code>factor</code>: Convertion factor (float value) used by FDR DREF parameter. Optional. <em>Not</em> used by FDR.</li>
+<li><code>callback</code>: Reverse polish notation expression, in which <code>${x}</code> is replaced with the dataref value. Optional.</li>
+<li><code>chart</code> : A hint to group data in the same chart in the viewer. Optional.
+    (If the chart name is <code>no-chart</code>, the data is not presented in the viewer.)</li>
+</ul>
+<p>The callback string is a Reverse polish notation expression.
+Its goal is a provide an easy mechanism to alter raw dataref values to meaningful record value
+with minimal impact.</p>
+<p>Typically, it can be used for unit adjustment expressions like</p>
+<ul>
+<li><code>${x} 0.00508 *</code> : convert feet per minute to meters per second (see example above)</li>
+<li><code>${x} 0.3048 *</code> : convert ft to m</li>
+<li><code>${x} 32 - 1.8 /</code> : convert Farenheit to Celsius for temperature</li>
+<li><code>${x} 0 round 0 eq</code> : returns 1.0 when value rounds to zero</li>
+</ul>
+<p>In the above expression <code>${x}</code> is the raw <em>numeric</em> dataref value.</p>
+<p>This scheme is a alternate, more sophisticated method than the built-in FDR DREF factor parameter,
+which remains available as the factor attribute in the Data Definition.
+Please note that the <em>factor</em> is not used in FDR, it is just forwarded in the FDR version 4 DREF attribute.</p>
+<pre><code class="language-yaml">  - name: vertical_speed
+    dataref: sim/cockpit2/gauges/indicators/vvi_fpm_pilot
+    unit: m/s # dataref is ft/min, converted by callback into m/s
+    callback: ${x} 0.00508 *
+    chart: Speeds
+</code></pre>
+<h3 id="monitored-command-definition">Monitored <em>Command Definition</em></h3>
+<p>Monitored command is described by the following fields:</p>
+<ul>
+<li><code>name</code>: Name of the command. Mandatory if using a <em>Command Definition</em>.</li>
+<li><code>dataref</code>: Name of dataref command. Mandatory.</li>
+<li><code>phase</code>: Either a single phase or a list of phase to monitor. Default to <code>2</code>, command end.</li>
+<li><code>before</code>: 0 or 1 to log execution event before or after the execution of the command (default to <code>1</code>, after).</li>
+<li><code>chart</code> : A hint to group data in the same chart in the viewer. Optional.
+    (If the chart name is <code>no-chart</code>, the data is not presented in the viewer.)</li>
+</ul>
+<pre><code class="language-yaml">  - name: Caution
+    dataref: sim/annunciator/clear_master_wcaution
+    before: 1
+    phase: [0, 2]
+</code></pre>
+<h3 id="array-datarefs">Array Datarefs</h3>
+<p>It is possible to list dataref with a python <code>slice()</code> syntax.</p>
+<pre><code>  - name: eng_n1
+    dataref: sim/flightmodel/engine/ENGN_N1_[0:4]
+</code></pre>
+<p>Range <code>0:4</code> is called a python array <em>slice</em> and follow a specific syntax.</p>
+<p>The above slice is equivalent to</p>
+<pre><code>  - name: eng_n1[0]
+    dataref: sim/flightmodel/engine/engn_n1_[0]
+  - name: eng_n1[1]
+    dataref: sim/flightmodel/engine/engn_n1_[1]
+  - name: eng_n1[2]
+    dataref: sim/flightmodel/engine/engn_n1_[2]
+  - name: eng_n1[3]
+    dataref: sim/flightmodel/engine/engn_n1_[3]
+</code></pre>
+<p>Alternatively, it is possible to list indices of interest like so:</p>
+<pre><code>  - name: eng_n1
+    dataref: sim/flightmodel/engine/ENGN_N1_[1,3]
+</code></pre>
+<p>which is equivalent to</p>
+<pre><code>  - name: eng_n1[1]
+    dataref: sim/flightmodel/engine/engn_n1_[1]
+  - name: eng_n1[3]
+    dataref: sim/flightmodel/engine/engn_n1_[3]
+</code></pre>
+<p>Index list must be a comma separated list of integer value.</p>
+<p>The drawback of these slices or multi-index selection
+is that all values of the dataref array are fetched
+during each data collection, but only those values that are requested are returned.
+(On a longer term, this can become a performance issue if many arrays are requested.
+As an alternative, it is always possible to fetch a single array value.)</p>
+<h3 id="default-behavior-and-values">Default Behavior and Values</h3>
+<p>Without preference file, FDR generates Version 4 file for APPLE architecture.
+The recording frequency is 10 seconds, and reporting frequency occurs every 100 records.
+(Reporting is written in X-Plane log.txt file and is useful to monitor that FDR is logging
+events in the FDR file.)
+Without preference file, FDR only record mandatory header fields once,
+and mandatory data (time, position, attitude, 2 convenient values, total 9 values, see below) every 10 seconds.
+It is a lightweight process that has no impact on the frame rate.</p>
+<p>When the plugin is installed, this occurs automatically without user interaction.</p>
+<p>In summary, if you install XPPython3 plugin and drop this PI_fdr.py script into it,
+you will have permanent <em>«black box»</em> function all the time.
+Resolution will be minimal (every 10 seconds).
+Data will be minimal as well (lat, lon, altitude (MSL), speed, heading, pitch, roll, ground speed, elevation (AGL)).</p>
+<p>If you'd like finer resolution and a few more datarefs,
+drop them in a global preference file.
+You will have permanent <em>«black box»</em> function all the time,
+without thinking about it with all data you need,
+at the resolution that allows you to look at it
+with the viewer.</p>
+<p>If you want a better flight data recorder, with data important to you,
+collected at a pace that will allow finer analysis,
+create a preference file for your favourite aircraft.
+You will have permanent <em>«black box»</em> function for your favourite aircraft,
+with ability to revive the flights you made.</p>
+<h4 id="specifics-for-toliss-airbus">Specifics for ToLiss Airbus</h4>
+<p>There is a specific set up and behevior for ToLiss Airbus aircrafts.
+It automatically sets up when such an aircraft is detected.</p>
+<p><a href="toliss/">Please see here for details.</a></p>
+<h3 id="mandatory-data">Mandatory Data</h3>
+<p>FDR collects the following data which is required in the header of the FDR file:</p>
+<ul>
+<li><code>ACFT</code>: the aircraft file to use, with full directory path from the X-Plane folder
+    (ex: <code>Aircraft/Airbus/ToLiss A321.acf</code>).</li>
+<li><code>TAIL</code>: tail number of the aircraft (ex: <code>C-GTLU</code>). Must come immediately after the <code>ACFT</code> line.</li>
+<li><code>TIME</code>: ZULU time of the begining of the flight (ex: <code>18:54:32</code>) (TIME is optional in FDR v4).</li>
+<li><code>DATE</code>: date of the flight (ex: <code>03/18/26</code>, month/day/year format).</li>
+<li><code>PRES</code>: sea-level pressure during the flight in inches Hg (ex: <code>29.92</code>).</li>
+<li><code>TEMP</code>: sea-level temperatre during the flight in degrees Farenheit (ex: <code>65</code>).</li>
+<li><code>WIND</code>: wind during th flight in degrees, then knots (ex: <code>230,17</code>: 270°, 17kt).</li>
+</ul>
+<p>FDR collects the following data which is the minimum required in the FDR file:</p>
+<ul>
+<li>UTC time of day (with fractional second if available: <code>18:54:32.678324</code>)</li>
+<li>longitude</li>
+<li>latitude</li>
+<li>altitude (MSL, WSG84 ellipsoid, in feet)</li>
+<li>heading</li>
+<li>pitch</li>
+<li>roll</li>
+</ul>
+<p>UTC time is the simulator UTC time when the flight occurs.</p>
+<p>In addition to these mandatory values, FDR always records the following two convenient values:</p>
+<ul>
+<li>ground speed</li>
+<li>elevation (above ground level, in meters)</li>
+</ul>
+<p>Both are used to detect lateral and vertical movements like takeoff and landing.
+They are also used to display conventional flight report in the viewer.</p>
+<p>In a record, all values are decimal floating point values, separated by a <code>,</code>
+with the exception of time which is formatted as shown above and always is
+the first value of the record.</p>
+<h3 id="optional-additional-data">Optional Additional Data</h3>
+<p>Additional <code>fdr_data</code> is saved after these mandatory values as additional columns,
+one column per additional data.</p>
+<h1 id="installation">Installation</h1>
+<p>Flight Data Recorder is a X-Plane plugin written in python.
+It needs <a href="https://xppython3.readthedocs.io/en/latest/">XPPython3</a> X-Plane plugin to run.</p>
+<p>Install <code>PI_fdr</code> folder in <code>&lt;X-Plane 12 Folder&gt;/Resources/plugins/PythonPlugins</code>.
+Reload scripts in XPPython3 through the Plugin menu entry.</p>
+<p>The PI_fdr folder contains the main script file (<code>PI_fdr.py</code>, a sample preference file,
+and a <code>skunkcrafts_updater.txt</code> file.)</p>
+<p>On first start, or after XPPython3 upgrades, the script may download missing python package like Yaml.
+When completed, simply reload XPPython3 script again.</p>
+<p>PI_fdr folder also contains a <code>skunkcrafts_updater.txt</code> file which will allow
+for easier script maintenance.</p>
+<h2 id="reader">Reader</h2>
+<p>There is a compagnon script <code>fdr_reader.py</code> that reads a FDR record file and generates</p>
+<ul>
+<li>a GeoJSON file that can be viewed on <a href="geojson.io">geojson.io</a> for example,</li>
+<li>a CSV file with all data (<a href="https://datafrog.tools">example viewer</a>.)</li>
+</ul>
+<p>In the GeoJSON file, FDR data is added as a list of feature properties along with (3D) Point position.
+The GeoJSON file also contain additional Features like the whole flight path as a LineString.</p>
+<p>In the CSV file, no meta data is available, just records.
+(There is no nav aid location, and no command trigger report in the CSV file.)</p>
+<h2 id="viewer">Viewer</h2>
+<p>There is a compagnon web page <code>frd_viewer.html</code> to display either a GeoJSON formatted FDR file
+or a Version 4 FDR file in a simple, basic map and charting page.</p>
+<p>You can drop FDR v4 files, GeoJSON or CSV files <em>generated by fdr_reader</em>.</p>
+<p><em>The viewer is under development.</em></p>
+<p>The layout of charts is automagic, based on the number of featured data.</p>
+<p>If the FDR file has been produced by the plugin,
+it contains additional information and meta data
+that allow for better display of information in the viewer.</p>
+<ul>
+<li>Collected navaids are displayed on the map,</li>
+<li>Moment of executions of monitored commands are shown both on the map and on a specific chart.</li>
+</ul>
+<p>If using FDR default values/settings recorded without preference file,
+FDR Viewer display a Flightradar24/Flight Aware type of graph with</p>
+<ul>
+<li>A map of the flight,</li>
+<li>Ground speed and altitude MSL,</li>
+<li>Mandatory values collected by FDR: Heading, pitch, and roll.</li>
+</ul>
+<p><img alt="fdr viewer" src="images/fdr_viewer.png" /></p>
+<p>If additional values are requested through a preference file,
+all additional values are presented in similar graphs.</p>
+<p>The <em>Data Definition</em> structure contains a <code>chart</code> attribute.
+It is the name of a chart.
+All data with the same chart name will be displayed on the same chart.
+This allow for grouping and organisation of data on charts.</p>
+<p>Here is an example of the standard viewer presentation:</p>
+<pre><code class="language-python">FDRData(name=&quot;pitch&quot;, dataref=&quot;sim/cockpit2/gauges/indicators/pitch_electric_deg_pilot&quot;, chart=&quot;Attitude&quot;)
+FDRData(name=&quot;roll&quot;, dataref=&quot;sim/cockpit2/gauges/indicators/roll_electric_deg_pilot&quot;, chart=&quot;Attitude&quot;)
+</code></pre>
+<p>In this case, both data values will presented in the same chart named Attitude.</p>
+<p><img alt="Attitude chart" src="images/attitude.png" /></p>
+<p>Map is presented thanks to <a href="https://leafletjs.com">Leaflet</a>.
+Charts are presented thanks to <a href="https://www.chartjs.org">ChartJS</a>.
+Navaid icons stolen from <a href="https://albar965.github.io/littlenavmap.html">Little Navmap</a>.</p>
+<p>All code by devleaks, a HI. Hence bugs.</p>
+<h1 id="troubleshooting">Troubleshooting</h1>
+<h2 id="support">Support</h2>
+<p>We only provide support for the core functions like data acquisition and FDR reader.</p>
+<p>The FDR viewer is considered an addition to the above and is not part of the FDR core function. Efforts will always be made to get the viewer working in sync with the recorder/writer, but with a lower priority.</p>
+<p>There are other tools and online applications capable of plotting charts from supplied GeoJSON or CSV data file.</p>
+<p>FDR logs a few messages in X-Plane <code>log.txt</code> file, especially reports it is working
+and logging events.</p>
+<p>Please report issues on GitHub. Always provide <code>log.txt</code> and <code>XPPython3Log.txt</code> files.</p>
+<p>The script will not work on X-Plane release 11 as it depends on newer XPPython3 features.</p>
+<h1 id="see-also">See Also</h1>
+<ul>
+<li><code>&lt;X-Plane 12 Folder&gt;/Instruction/FDR Example Version 4.fdr</code> (as a reference)</li>
+<li><code>&lt;X-Plane 12 Folder&gt;/Instruction/FDR Example Version 3.fdr</code> (for comparison, information)</li>
+</ul>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 24, 2026 05:51:59 UTC"><span class="timeago" datetime="2026-10-24T05:51:59+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 24, 2026 05:51:59 UTC">2026-10-24</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-timeago" title="October 24, 2026 05:51:59 UTC"><span class="timeago" datetime="2026-10-24T05:51:59+00:00" locale="en"></span></span><span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-iso_date" title="October 24, 2026 05:51:59 UTC">2026-10-24</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": [], "search": "assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="js/timeago.min.js"></script>
+      
+        <script src="js/timeago_mkdocs_material.js"></script>
+      
+    
+  </body>
+</html>
