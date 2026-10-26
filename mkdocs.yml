@@ -27,7 +27,7 @@ nav:
 - Welcome: index.md
 - Viewer: viewer.md
 - ToLiss Airbus: toliss.md
-- TOML formatter preferences: toml.md
+- TOML-formatted preferences: toml.md
 
 markdown_extensions:
 - pymdownx.snippets
