@@ -1,4 +1,4 @@
-# Flight Data Recorder - ToLiss Airbus Specifics
+# Flight Dataref Recorder - ToLiss Airbus Specifics
 
 
 The flight data recorder contains special features for Airbus-type airliners.

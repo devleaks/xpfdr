@@ -1,6 +1,6 @@
-# Flight Data Recorder for X-Plane
+# Flight Dataref Recorder for X-Plane
 
-Flight Data Recorder is a customizable flight data recording plugin for X-Plane flight simulator.
+Flight Dataref Recorder is a customizable flight data recording plugin for X-Plane flight simulator.
 It generates X-Plane FDR files from a running flight.
 It records both dataref values and command executions.
 
@@ -351,7 +351,7 @@ one column per additional data.
 
 # Installation
 
-Flight Data Recorder is a X-Plane plugin written in python.
+Flight Dataref Recorder is a X-Plane plugin written in python.
 It needs [XPPython3](https://xppython3.readthedocs.io/en/latest/) X-Plane plugin to run.
 
 Install `PI_fdr` folder in `<X-Plane 12 Folder>/Resources/plugins/PythonPlugins`.

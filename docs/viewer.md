@@ -1,4 +1,4 @@
-# Flight Data Recorder Viewer
+# Flight Dataref Recorder Viewer
 
 The `fdr_viewer.html` page is a simple, straightforward HTML page for viewer FDR data files.
 

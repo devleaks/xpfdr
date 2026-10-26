@@ -1,4 +1,4 @@
-"""X-Plane Flight Data Recorder
+"""X-Plane Flight Dataref Recorder
 
 XPPython3 Plug In to create a FDR file during a flight.
 
