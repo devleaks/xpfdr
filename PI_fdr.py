@@ -123,7 +123,6 @@ except ModuleNotFoundError:
 # missing_modules = []
 # yaml = False
 
-# Changelog
 
 # Constants, default values
 #
@@ -132,7 +131,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "2.1.4"
+VERSION = "2.1.5"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
@@ -1908,8 +1907,8 @@ class PythonInterface:
             self.load_acf_preferences()
             ctl = " (loaded)"
         else:
-            self.install_preferences(newprefs=self.prefs)  # no need to restart, they haven't changed
             ctl = " (installed)"
+        self.install_preferences(newprefs=self.prefs)  # no need to restart, they haven't changed
         self.debug(f"soft_reset: completed{ctl}", force=True)
 
     def reset_fdr(self) -> bool:
