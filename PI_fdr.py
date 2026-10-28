@@ -575,6 +575,7 @@ class NavAid:
 # Collected once per session, displayed in FDR report header
 FDR_HEADER = [
     FDRData(name="ACFT", dataref="sim/aircraft/view/acf_relative_path"),
+    FDRData(name="LVRY", dataref="sim/aircraft/view/acf_livery_path"),
     FDRData(name="TAIL", dataref="sim/aircraft/view/acf_tailnum"),
     FDRData(name="ICAO", dataref="sim/aircraft/view/acf_ICAO"),
     FDRData(name="AUTH", dataref="sim/aircraft/view/acf_author"),
@@ -1927,13 +1928,25 @@ class PythonInterface:
                 self.debug("load_acf_preferences: aircraft preference file already loaded")
                 return True
 
-            acffile = os.path.join(xp.getSystemPath(), acfpath)
-            acffile = os.path.join(os.path.dirname(acffile), FDR_PREFERENCE_FILE)
-            if not os.path.exists(acffile):  # try aircraft-specific pref
-                self.debug("load_acf_preferences: no aircraft preference file " + (acffile if SHOW_TRACE else ""))
-                return False
+            acffile = None
+            livpath = self.header.get("LVRY").value
+            if livpath is not None:
+                acfdir = os.path.join(xp.getSystemPath(), livpath)
+                acffile = os.path.join(os.path.dirname(acfdir), FDR_PREFERENCE_FILE)
+                if os.path.exists(acffile):  # try aircraft-specific pref
+                    self.debug(f"load_acf_preferences: aircraft livery preference file found at {acffile}")
+                else:
+                    acffile = None
 
-            self.debug(f"load_acf_preferences: aircraft preference file found at {acffile}")
+            if acffile is None:  # no livery preferences
+                acfdir = os.path.join(xp.getSystemPath(), acfpath)
+                acffile = os.path.join(os.path.dirname(acfdir), FDR_PREFERENCE_FILE)
+                if not os.path.exists(acffile):  # try aircraft-specific pref
+                    self.debug("load_acf_preferences: no aircraft preference file " + (acffile if SHOW_TRACE else ""))
+                    return False
+                else:
+                    self.debug(f"load_acf_preferences: aircraft preference file found at {acffile}")
+
             prefs = {}
             if yaml:
                 try:
@@ -1973,6 +1986,7 @@ class PythonInterface:
         except Exception as e:
             self.debug(f"load_acf_preferences: exception: {e}", force=True)
             self.debug(f"load_acf_preferences: aircraft preference file {acffile} not loaded", force=True)
+            print_exc()
         return False
 
     def load_preferences(self) -> bool:
@@ -2274,11 +2288,15 @@ class PythonInterface:
             self.aircraft_movement = self.guessed_aircraft_movement  # provoque update
             self.fdr_comment(f"INFO Flight state {self.aircraft_movement.name}")
 
+        icao = self.header.get("ICAO").value
+        author = self.header.get("AUTH").value
+        livery = self.header.get("LVRY").value
         lat = self.fdr_mand.get("latitude").value
         lon = self.fdr_mand.get("longitude").value
         alt = self.fdr_mand.get("agl").value
         hdg = self.fdr_mand.get("heading").value
         spd = self.fdr_mand.get("gs").value
+        self.fdr_comment(f"INFO icao={icao}, author={author}, livery={livery}")
         self.fdr_comment(f"INFO lat={lat}, lon={lon}, alt={alt}, hdg={hdg}, speed={spd}")
         self.fdr_comment(f"INFO supervisor={AUTOSTART} {AUTOSTART_FREQUENCY} recorder={self.frequency}")
         self.fdr_comment(f"INFO custom_chocks={self.custom_chocks.dataref if self.custom_chocks is not None else 'none'} ({self.chocked})")
@@ -2300,7 +2318,7 @@ class PythonInterface:
         self.fdr_comment(f"X-Plane {xp.getVersions()}, XPPython3 {xp.VERSION}")
         self.fdr_new_line()
 
-        # FDR Meta data
+        # FDR Meta data (mandatory in FDR v4?)
         self.fdr_write(f"ACFT, {self.header.get('ACFT').value}")
         self.fdr_write(f"TAIL, {self.header.get('TAIL').value}")
         self.fdr_write(f"DATE, {self.simulator_zulu_datetime.strftime("%m/%d/%Y")}")  # MM/DD/YYYY
@@ -2321,7 +2339,7 @@ class PythonInterface:
                 else:
                     self.fdr_write(f"DREF, {d.dataref}  {d.factor}  // not writable")
 
-        # FDRReader meta
+        # FDRReader meta: what is being recorded
         self.fdr_new_line()
         for d in self.fdr_all_data_values:
             self.fdr_comment(f"{d.fun()}")
@@ -2332,8 +2350,8 @@ class PythonInterface:
 
         # Additional comments
         self.start_situation()
-
         self.fdr_new_line()
+
         # Units
         units = []
         columns = []
