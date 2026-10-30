@@ -55,6 +55,7 @@
 <body>
     <div id="map"></div>
     <div id="charts">
+        <canvas id="fetchChart"></canvas>
         <canvas id="speedAltChart"></canvas>
         <div id="buttons"></div>
         <!-- additional charts will come here -->
@@ -148,6 +149,11 @@ function NAVAID_ICON(navType) {
 
 // Main chart shows speed and altitude (always)
 // Like at flightradar24 and flightaware.
+const TIME_DATA = "_raw_ts";
+const LATLNGS = "latlngs";
+const POINTS = "points";
+const NUM_POINTS = "count";  // number of points in each dataset
+
 const SPEED_DATA = "gs";  // name of GeoJSON feature property for speed
 const SPEED_CONVERT = {
     "m/s": 1,
@@ -213,9 +219,8 @@ var RAW_FDR = false
 //
 // Globals
 var geojson = {};  // whole file
-var pointFeatures = {}; // individual points
-var latlngs = [];   // minimal data for cursor
-var tlabels = [];   // x-axis time ticks (same for all charts)
+
+var chartData = {};  // all chart raw data {label: Array()}
 
 var speedAltChart = undefined; // for cursor positioning
 var otherCharts = {}; // for cursor positioning
@@ -487,7 +492,7 @@ function parseFDRFile(text) {
                         type: "Feature",
                         geometry: {
                             type: "Point",
-                            coordinates: [0.0, 0.0]  // geometry: pointFeatures[params["index"]]["geometry"],
+                            coordinates: [0.0, 0.0]  // geometry: chartData[POINTS][params["index"]]["geometry"],
                         },
                         "properties": {
                             command: params["name"],
@@ -620,7 +625,7 @@ function point_props(props) {
 
 // MAP and CHART ZOOM MANAGEMENT
 function resetZoom() {
-    mapZoomOnIndex(0, latlngs.length);
+    mapZoomOnIndex(0, chartData[LATLNGS].length);
     speedAltChart.resetZoom();
     Object.values(otherCharts).forEach( (c) => {
         c.resetZoom()
@@ -686,8 +691,8 @@ function syncAllCharts() {
     }
     // compute new scale values on speedAltChart (model, all charts share similar x axis)
     const sourceInitialBounds = sourceChart.initial;
-    const new_min = tlabels[zoomIndex[0]];
-    const new_max = tlabels[zoomIndex[1]];
+    const new_min = chartData[TIME_DATA][zoomIndex[0]];
+    const new_max = chartData[TIME_DATA][zoomIndex[1]];
     const sourceXrange = Math.abs(sourceInitialBounds.x.max) + Math.abs(sourceInitialBounds.x.min);
     const sourceXscaleMin = (new_min - sourceInitialBounds.x.min) / sourceXrange;
     const sourceXscaleMax = (new_max - sourceInitialBounds.x.max) / sourceXrange;
@@ -714,12 +719,12 @@ function syncAllCharts() {
 // MAP ZOOM MANAGEMENT
 function zoomMap() {
     // zoom map on visible part of flight
-    map.fitBounds(latlngs.slice(zoomIndex[0], zoomIndex[1]));    
+    map.fitBounds(chartData[LATLNGS].slice(zoomIndex[0], zoomIndex[1]));    
 }
 
 function mapZoomOnIndex(lo, hi) {
     // zoom map on supplied part of flight (called from charts, with range of visible part)
-    if (lo < 0 || lo > latlngs.length || hi < 0 || hi > latlngs.length) {
+    if (lo < 0 || lo > chartData[LATLNGS].length || hi < 0 || hi > chartData[LATLNGS].length) {
         console.warn("out of range", lo, hi)
         return;
     }
@@ -730,7 +735,7 @@ function mapZoomOnIndex(lo, hi) {
 function mapZoomed() {
     // called when map zoom has changed
     zoomIndex = findMapZoomIndex();
-    adjustCharts = (zoomIndex[1] - zoomIndex[0]) < (latlngs.length - 1);
+    adjustCharts = (zoomIndex[1] - zoomIndex[0]) < (chartData[LATLNGS].length - 1);
     panOK = ! adjustCharts;
     if (speedAltChart != undefined) {
         syncAllCharts();
@@ -751,12 +756,12 @@ function findMapZoomIndex() {
     // finds part of flight currently shown
     const bbox = map.getBounds();
     let i = 0;
-    while (i < latlngs.length && ! bbox.contains(latlngs[i])) {
+    while (i < chartData[LATLNGS].length && ! bbox.contains(chartData[LATLNGS][i])) {
         i++;
     }
     let lo = i;
-    i = latlngs.length - 1;
-    while (i >= 0 && ! bbox.contains(latlngs[i])) {
+    i = chartData[LATLNGS].length - 1;
+    while (i >= 0 && ! bbox.contains(chartData[LATLNGS][i])) {
         i--;
     }
     if (lo > i) {
@@ -769,9 +774,6 @@ function findMapZoomIndex() {
 }
 
 // MAP
-var latlngs_raw = [];   // minimal data for cursor
-var tlabels_raw = [];   // x-axis time ticks (same for all charts)
-
 function buildMap(text, filetype) {
     document.body.style["background-image"] = "none";
     let geojson;
@@ -784,10 +786,13 @@ function buildMap(text, filetype) {
     }
 
     // flight path
-    pointFeatures = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("_raw_ts") > -1)
-    latlngs = pointFeatures.map((f) => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
-    zoomIndex = [0, latlngs.length];
-    let points = pointFeatures.map( (f) => {
+    chartData[POINTS] = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("_raw_ts") > -1)
+    chartData[NUM_POINTS] = chartData[POINTS].length; // all datasets should have that amount of points
+    chartData[LATLNGS] = chartData[POINTS].map((f) => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
+    chartData[TIME_DATA] = chartData[POINTS].map((p) => p.properties._raw_ts * (RAW_FDR ? 1 : 1000))
+
+    zoomIndex = [0, chartData[LATLNGS].length];
+    let points = chartData[POINTS].map( (f) => {
         m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
             icon: TRANSPARENT_ICON
         })
@@ -814,7 +819,7 @@ function buildMap(text, filetype) {
     // commands
     commandFeatures = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("command") > -1)
     let commands = commandFeatures.map( (f) => {
-        f.geometry = pointFeatures[f.properties["index"]]["geometry"]
+        f.geometry = chartData[POINTS][f.properties["index"]]["geometry"]
         m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
             icon: NAVAID_ICON("Command")
         });
@@ -824,8 +829,8 @@ function buildMap(text, filetype) {
     });
 
     // Start leaflet
-    let avglat = pointFeatures.reduce( (acc, f) => acc + f.geometry.coordinates[1], 0) / pointFeatures.length;
-    let avglon = pointFeatures.reduce( (acc, f) => acc + f.geometry.coordinates[0], 0) / pointFeatures.length;
+    let avglat = chartData[POINTS].reduce( (acc, f) => acc + f.geometry.coordinates[1], 0) / chartData[POINTS].length;
+    let avglon = chartData[POINTS].reduce( (acc, f) => acc + f.geometry.coordinates[0], 0) / chartData[POINTS].length;
     // console.log(avglat, avglon);
     map = L.map("map").setView([avglat, avglon], 13);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -834,11 +839,11 @@ function buildMap(text, filetype) {
     }).addTo(map);
 
     // display whole flight as linestring
-    L.polyline(latlngs, {
+    L.polyline(chartData[LATLNGS], {
         color: "darkblue",
         fill: false
     }).addTo(map);
-    mapCursor = L.marker(latlngs[0], {
+    mapCursor = L.marker(chartData[LATLNGS][0], {
         icon: AIRCRAFT_ICON,
         autoPanOnFocus: true
     }).addTo(map);
@@ -871,10 +876,10 @@ function buildMap(text, filetype) {
     // add command occurences
     commands.forEach((m) => { m.addTo(map); })
 
-    map.fitBounds(latlngs);
+    map.fitBounds(chartData[LATLNGS]);
 
     // guess properties list from first point feature
-    const f = pointFeatures[0];
+    const f = chartData[POINTS][0];
     const chartCandidates =  Object.keys(f.properties)
         .filter((p) => typeof(f.properties[p]) == "number" && IGNORE.indexOf(p.trim()) == -1);
     // console.log(chartCandidates, chartCandidates.length);
@@ -884,6 +889,7 @@ function buildMap(text, filetype) {
     Chart.defaults.color = '#ddd';        
 
     buildSpeedAltChart();
+    makeFetchChart();
     if (chartCandidates.length == 0) {
         return;
     }
@@ -1046,10 +1052,14 @@ function chartColor(idx) {
 }
 
 function propertyValues(label) {
-    if (pointFeatures[0].properties[label] == undefined) {
+    if (Object.keys(chartData[POINTS][0].properties).indexOf(label) == -1) {
+        console.warn("property not found in feature", label, chartData[POINTS][0].properties);
         return [];
     }
-    return pointFeatures.map((f) => f.properties[label]);
+    if (Object.keys(chartData).indexOf(label) == -1) {
+        chartData[label] = chartData[POINTS].map((f) => f.properties[label]);
+    }
+    return chartData[label]
 }
 
 function indexForValue(arr, value) {
@@ -1068,25 +1078,17 @@ function indexForValue(arr, value) {
 }
 
 function timeIndex(ts) {
-    return indexForValue(tlabels, ts);
+    return indexForValue(chartData[TIME_DATA], ts);
 }
 
 function buildSpeedAltChart() {
-    for (i = 0; i < pointFeatures.length; i++) {
-        date = new Date(pointFeatures[i].properties._raw_ts * 1000);
-        fmt = new Intl.DateTimeFormat("en-GB", {
-            timeStyle: "long",
-        }).format(date);
-        fmt = fmt.substr(0, 8);
-        tlabels.push(pointFeatures[i].properties._raw_ts * (RAW_FDR ? 1 : 1000));
-    }
     let spd = propertyValues(SPEED_DATA)  // speed is in m/s
     spd = spd.map((s) => s * SPEED_CONVERT[SPEED_UNIT])
     let alt = propertyValues(ALTITUDE_DATA) // alt is in ft
     alt = alt.map((s) => s * ALTITUDE_CONVERT[ALTITUDE_UNIT])
 
     const data = {
-        labels: tlabels,
+        labels: chartData[TIME_DATA],
         datasets: [{
             backgroundColor: "rgba(" + SPEED_COLOR.join(",") + ", 0.2)",
             borderColor: "rgba(" + SPEED_COLOR.join(",") + ", 1)", // orange
@@ -1372,7 +1374,7 @@ function addChart(title, datasets) {
             }
         }],
         data: {
-            labels: tlabels,
+            labels: chartData[TIME_DATA],
             datasets: datasets
         },
         options: {
@@ -1470,7 +1472,7 @@ function buildTimeline(fc) {
         type: 'line',
         data: {
             datasets: [{
-                labels: tlabels,
+                labels: chartData[TIME_DATA],
                 data: occurences,
                 pointBackgroundColor: function(context) {
                     return cmd_color[context.raw.y];
@@ -1509,8 +1511,8 @@ function buildTimeline(fc) {
             scales: {
                 x: {
                     type: "time",
-                    min: tlabels[0],
-                    max: tlabels[tlabels.length - 1]
+                    min: chartData[TIME_DATA][0],
+                    max: chartData[TIME_DATA][chartData[TIME_DATA].length - 1]
                 },
                 y: {
                     type: "category",
@@ -1542,7 +1544,7 @@ function aircraftPosition(idx) {
         console.warn("aircraftPosition", idx);
         return;
     }
-    let pos = latlngs[idx];
+    let pos = chartData[LATLNGS][idx];
     let orient = orients[idx];
     return pos + orients;
 }
@@ -1589,10 +1591,10 @@ function trackingAtIndex(idx_in) {
         console.warn("trackingAtIndex", idx_in);
         return 0.0;
     }
-    let idx = idx_in >= latlngs.length ? latlngs.length - 1 : idx_in;
-    let rot = idx >= (latlngs.length - 1) ?
-        tracking(latlngs[latlngs.length - 2], latlngs[latlngs.length - 1]) :
-        tracking(latlngs[idx], latlngs[idx+1]);
+    let idx = idx_in >= chartData[LATLNGS].length ? chartData[LATLNGS].length - 1 : idx_in;
+    let rot = idx >= (chartData[LATLNGS].length - 1) ?
+        tracking(chartData[LATLNGS][chartData[LATLNGS].length - 2], chartData[LATLNGS][chartData[LATLNGS].length - 1]) :
+        tracking(chartData[LATLNGS][idx], chartData[LATLNGS][idx+1]);
     return rot;
 }
 
@@ -1601,20 +1603,20 @@ function moveMapCursor(idx_in) {
         console.warn("moveMapCursor", idx_in);
         return;
     }
-    let idx = idx_in >= latlngs.length ? latlngs.length - 1 : idx_in;
+    let idx = idx_in >= chartData[LATLNGS].length ? chartData[LATLNGS].length - 1 : idx_in;
     let rot = trackingAtIndex(idx) + AIRCRAFT_ICON_ROTATION;
-    mapCursor.setLatLng(latlngs[idx]);
+    mapCursor.setLatLng(chartData[LATLNGS][idx]);
     mapCursor._icon.style.transformOrigin = Math.round(AIRCRAFT_ICON_SIZE/2) + "px " +
                                             Math.round(AIRCRAFT_ICON_SIZE/2) + "px";
     mapCursor._icon.style.transform += " rotateZ(" + Math.round(rot) + "deg)";
     // console.log(mapCursor._icon.style.transform);
     if (panOK) {
-        map.panTo(latlngs[idx]);
+        map.panTo(chartData[LATLNGS][idx]);
     }
 }
 
 function moveChartCursor(idx) {
-    let x = speedAltChart.scales.x.getPixelForValue(tlabels[idx], idx);
+    let x = speedAltChart.scales.x.getPixelForValue(chartData[TIME_DATA][idx], idx);
     let yAxis = speedAltChart.scales.y;
     let ctx = speedAltChart.ctx;
     ctx.save();
@@ -1626,7 +1628,7 @@ function moveChartCursor(idx) {
     ctx.stroke();
     ctx.restore();
     Object.values(otherCharts).forEach( (chart) => {
-        let x = chart.scales.x.getPixelForValue(tlabels[idx], idx);
+        let x = chart.scales.x.getPixelForValue(chartData[TIME_DATA][idx], idx);
         let yAxis = chart.scales.y;
         let ctx = chart.ctx;
         ctx.save();
@@ -1666,6 +1668,190 @@ document.documentElement.addEventListener("drop", (e) => {
         console.log("invalid file type", e.dataTransfer.files[0].type);
     }
 });
+
+////////////////////////////////////////////////////////////////
+//
+////////////////////////////////////////////////////////////////
+function fetchPoints(x1, x2) {
+    const step = Math.max(1, Math.round((x2 - x1) / 100000));
+    const data = [];
+    let i = 0;
+    while (i < chartData[NUM_POINTS] && chartData[TIME_DATA][i] < x1) {
+        i++;
+    }
+    while (i < chartData[NUM_POINTS] && chartData[TIME_DATA][i] <= x2) {
+        data.push(chartData[POINTS][i]);
+        i += step;
+    }
+    return data;
+}
+
+function fetchData(label, x1, x2) {
+    const step = Math.max(1, Math.round((x2 - x1) / 100000));
+    const data = [];
+    let i = 0;
+    while (i < chartData[NUM_POINTS] && chartData[TIME_DATA][i] < x1) {
+        i++;
+    }
+    while (i < chartData[NUM_POINTS] && chartData[TIME_DATA][i] <= x2) {
+        data.push({x: chartData[TIME_DATA][i], y: chartData[label][i]});
+        i += step;
+    }
+    return data;
+}
+
+let timer;
+function startFetch({chart}) {
+    const {min, max} = chart.scales.x;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+        console.log('fetched data between ' + min + ' and ' + max);
+        chart.data.datasets[0].data = fetchData(SPEED_DATA, min, max);
+        chart.data.datasets[1].data = fetchData(ALTITUDE_DATA, min, max);
+        chart.stop(); // make sure animations are not running
+        chart.update('none');
+    }, 500);
+}
+
+function makeFetchChart() {
+    const zoomStatus = (chart) => (fetchZoomOptions.zoom.wheel.enabled ? 'enabled' : 'disabled') + ' (' + chart.getZoomLevel() + 'x)';
+    let c = Math.round(Math.random() * 20)
+
+    const data = {
+        datasets: [{
+            label: SPEED_LABEL,
+            borderColor: chartColor(c),
+            backgroundColor: chartColor(c) + "60", // transparency
+            pointBorderColor: chartColor(c),
+            pointBackgroundColor: chartColor(c++) + "60",
+            //pointBorderWidth: 1,
+            data: fetchData(SPEED_DATA, chartData[TIME_DATA][0], chartData[TIME_DATA][chartData[NUM_POINTS] - 1]),
+            yAxisID: "y",
+        },{
+            label: ALTITUDE_LABEL,
+            borderColor: chartColor(c),
+            backgroundColor: chartColor(c) + "60",
+            pointBorderColor: chartColor(c),
+            pointBackgroundColor: chartColor(c++) + "60",
+            pointBorderWidth: 1,
+            data: fetchData(ALTITUDE_DATA, chartData[TIME_DATA][0], chartData[TIME_DATA][chartData[NUM_POINTS] - 1]),
+            yAxisID: "y1",
+        }]
+    };
+
+    const fetchZoomOptions = {
+        limits: {
+            x: {
+                min: 'original',
+                max: 'original',
+                minRange: 60 * 1000
+            },
+        },
+        pan: {
+            enabled: true,
+            mode: 'x',
+            modifierKey: 'ctrl',
+            onPanComplete: startFetch
+        },
+        zoom: {
+            wheel: {
+              enabled: true,
+            },
+            drag: {
+              enabled: true,
+            },
+            pinch: {
+              enabled: true
+            },
+            mode: 'x',
+            onZoomComplete: startFetch
+        }
+    };
+
+    const fetchScales = {
+        x: {
+            position: 'bottom',
+            min: chartData[TIME_DATA][0],
+            max: chartData[TIME_DATA][chartData[NUM_POINTS] - 1],
+            type: 'time',
+            ticks: {
+                autoSkip: true,
+                autoSkipPadding: 50,
+                maxRotation: 0
+            },
+            time: {
+                displayFormats: {
+                    hour: 'HH:mm',
+                    minute: 'HH:mm',
+                    second: 'HH:mm:ss'
+                }
+            }
+        },
+        y: {
+            type: "linear",
+            display: true,
+            position: "left",
+            title: {
+                display: true,
+                text: "Speed (" + SPEED_UNIT + ")",
+                color: data["datasets"][0]["borderColor"],
+                padding: {
+                    top: 30,
+                    left: 0,
+                    right: 0,
+                    bottom: 0
+                }
+            },
+        },
+        y1: {
+            type: "linear",
+            display: true,
+            position: "right",
+            title: {
+                display: true,
+                text: "Altitude (" + ALTITUDE_UNIT + ")",
+                color: data["datasets"][1]["borderColor"],
+                padding: {
+                    top: 30,
+                    left: 0,
+                    right: 0,
+                    bottom: 0
+                }
+            },
+            // grid line settings
+            grid: {
+                drawOnChartArea: false, // only want the grid lines for one axis to show up
+            },
+        },
+    };
+
+    const fetchConfig = {
+        type: 'line',
+        data: data,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: fetchScales,
+            plugins: {
+                zoom: fetchZoomOptions,
+                title: {
+                    display: true,
+                    position: 'bottom',
+                    text: (ctx) => zoomStatus(ctx.chart)
+                }
+            },
+            transitions: {
+                zoom: {
+                    animation: {
+                        duration: 100
+                    }
+                }
+            }
+        }
+    };
+    const fetchCtx = document.getElementById("fetchChart");
+    const fetchChart = new Chart(fetchCtx, fetchConfig);
+}
 
 </script>
 </body>

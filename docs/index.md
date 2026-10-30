@@ -1,6 +1,6 @@
 # Flight Dataref Recorder for X-Plane
 
-![Recording Tape](images/basf.png){ align=right }
+![Recording Tape](images/basf.png){ align=right width=300 }
 
 Flight Dataref Recorder is a customizable flight data recording plugin for X-Plane flight simulator.
 It generates X-Plane FDR files from a running flight.

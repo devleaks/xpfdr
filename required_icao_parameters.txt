@@ -1,0 +1,88 @@
+ 1 ; Time
+ 2 ; Pressure altitude
+ 3 ; Indicated airspeed
+ 4 ; Heading—primary flight crew reference (if selectable, record discrete, true or magnetic)
+ 5 ; Normal acceleration (Vertical)
+ 6 ; Pitch attitude
+ 7 ; Roll attitude
+ 8 ; Manual radio transmitter keying, or CVR/DFDR synchronization reference
+ 9 ; Thrust/power of each engine—primary flight crew reference
+10 ; Autopilot engagement status
+11 ; Longitudinal acceleration
+12 ; Pitch control input
+13 ; Lateral control input
+14 ; Rudder pedal input
+15 ; Primary pitch control surface position
+16 ; Primary lateral control surface position
+17 ; Primary yaw control surface position
+18 ; Lateral acceleration
+19 ; Pitch trim surface position or parameters of paragraph (h)(82) of this section if currently recorded
+20 ; Trailing edge flap or cockpit flap control selection (except when parameters of paragraph (h)(85) of this section apply)
+21 ; Leading edge flap or cockpit flap control selection (except when parameters of paragraph (h)(86) of this section apply)
+22 ; Each Thrust reverser position (or equivalent for propeller airplane)
+23 ; Ground spoiler position or speed brake selection (except when parameters of paragraph (h)(87) of this section apply)
+24 ; Outside or total air temperature
+25 ; Automatic Flight Control System (AFCS) modes and engagement status, including autothrottle
+26 ; Radio altitude (when an information source is installed)
+27 ; Localizer deviation, MLS Azimuth
+28 ; Glideslope deviation, MLS Elevation
+29 ; Marker beacon passage
+30 ; Master warning
+31 ; Air/ground sensor (primary airplane system reference nose or main gear)
+32 ; Angle of attack (when information source is installed)
+33 ; Hydraulic pressure low (each system)
+34 ; Ground speed (when an information source is installed)
+35 ; Ground proximity warning system
+36 ; Landing gear position or landing gear cockpit control selection
+37 ; Drift angle (when an information source is installed)
+38 ; Wind speed and direction (when an information source is installed)
+39 ; Latitude and longitude (when an information source is installed)
+40 ; Stick shaker/pusher (when an information source is installed)
+41 ; Windshear (when an information source is installed)
+42 ; Throttle/power lever position
+43 ; Additional engine parameters (as designated in appendix F of this part)
+44 ; Traffic alert and collision avoidance system
+45 ; DME 1 and 2 distances
+46 ; Nav 1 and 2 selected frequency
+47 ; Selected barometric setting (when an information source is installed)
+48 ; Selected altitude (when an information source is installed)
+49 ; Selected speed (when an information source is installed)
+50 ; Selected mach (when an information source is installed)
+51 ; Selected vertical speed (when an information source is installed)
+52 ; Selected heading (when an information source is installed)
+53 ; Selected flight path (when an information source is installed)
+54 ; Selected decision height (when an information source is installed)
+55 ; EFIS display format
+56 ; Multi-function/engine/alerts display format
+57 ; Thrust command (when an information source is installed)
+58 ; Thrust target (when an information source is installed)
+59 ; Fuel quantity in CG trim tank (when an information source is installed)
+60 ; Primary Navigation System Reference
+61 ; Icing (when an information source is installed)
+62 ; Engine warning each engine vibration (when an information source is installed)
+63 ; Engine warning each engine over temp. (when an information source is installed)
+64 ; Engine warning each engine oil pressure low (when an information source is installed)
+65 ; Engine warning each engine over speed (when an information source is installed
+66 ; Yaw trim surface position
+67 ; Roll trim surface position
+68 ; Brake pressure (selected system)
+69 ; Brake pedal application (left and right)
+70 ; Yaw or sideslip angle (when an information source is installed)
+71 ; Engine bleed valve position (when an information source is installed)
+72 ; De-icing or anti-icing system selection (when an information source is installed)
+73 ; Computed center of gravity (when an information source is installed)
+74 ; AC electrical bus status
+75 ; DC electrical bus status
+76 ; APU bleed valve position (when an information source is installed)
+77 ; Hydraulic pressure (each system)
+78 ; Loss of cabin pressure
+79 ; Computer failure
+80 ; Heads-up display (when an information source is installed)
+81 ; Para-visual display (when an information source is installed)
+82 ; Cockpit trim control input position—pitch
+83 ; Cockpit trim control input position—roll
+84 ; Cockpit trim control input position—yaw
+85 ; Trailing edge flap and cockpit flap control position
+86 ; Leading edge flap and cockpit flap control position
+87 ; Ground spoiler position and speed brake selection
+88 ; All cockpit flight control input forces (control wheel, control column, rudder pedal)
