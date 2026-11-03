@@ -1369,6 +1369,7 @@ class PythonInterface:
         self.custom_chocks = None  # for formal OOOI
 
         self._afp = None  # ToLiss/Airbus specific
+        self._afp_saved = None
 
         # navaids
         self.navaid_freqs: List[FDRData] = NAVAID_FREQUENCIES  # default frequencies that are scanned
@@ -1490,7 +1491,13 @@ class PythonInterface:
             # ################################################
             #
             if self.use_airbus:
-                dummy = self._afp.flight_phase(dt=self.simulator_zulu_datetime)
+                np = self._afp.flight_phase(dt=self.simulator_zulu_datetime)
+                if self._afp_saved is None:
+                    self.fdr_comment(f"AirbusFlightPhase(phase={np.phase.name}, ts={self.simulator_zulu_datetime}, index={self.writes})")
+                    self._afp_saved = np
+                elif np.phase != self._afp_saved:
+                    self.fdr_comment(f"AirbusFlightPhase(phase={np.phase.name}, ts={self.simulator_zulu_datetime}, index={self.writes})")
+                    self._afp_saved = np
             #
             # ################################################
 
