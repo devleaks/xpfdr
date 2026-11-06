@@ -54,9 +54,7 @@
 </head>
 <body>
     <div id="map"></div>
-    <div id="charts">
-        <canvas id="fetchChart"></canvas>
-    </div>
+    <div id="charts"></div>
     <div id=footer>
         Map by <a href="https://leafletjs.com">Leaflet</a>,
         charts by <a href="https://www.chartjs.org">ChartJS</a>,
@@ -78,13 +76,14 @@ CHANGELOG
 1.9.0 15-OCT-2026 Add decimation to charts, build decimation for leaflet points
 1.10.0 16-OCT-2026 Auto grouping of data from same dataref (array) ! weak _indices parsing (unsure of regex).
 1.11.0 03-NOV-2026 Clip flight if possible (toke-off - x minutes, to landing + y minutes).
+1.12.0 03-NOV-2026 Normalized. Added map layers.
 
 TO DO
   - Add buttons to zoom on take-off or landing. (from OOOI)
 
 */
 
-const VERSION = "1.11.0"
+const VERSION = "1.12.0"
 
 // File types for FDR: GeoJSON
 const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", "text/csv", ""]
@@ -278,7 +277,6 @@ var chartData = {};  // all chart raw data {label: Array()}
 var chartNames = {};  // grouped datasets/properties into named charts
 var anonCharts = Array();  // other datasets/properties, not in groups
 var allCharts = {};
-var fetchChart; // temporary, experimental
 
 var zoomIndex = [0, 0];  // visible part of flight
 var panOK = true;  // OK to (auto-)pan map when scanning values to move aircraft
@@ -781,16 +779,25 @@ function buildMap(geojson) {
     flightpath = L.layerGroup().addTo(map);
     placePoints(chartData[TIME_DATA][0], chartData[TIME_DATA][chartData[TIME_DATA].length - 1]) // whole path
 
+    let navaid_layer = L.layerGroup().addTo(map);
+    let airport_layer = L.layerGroup().addTo(map);
+    // not nice, but it works...
+    // console.log("navaid", m.options.icon.options.iconUrl.replace("media/", "").replace(".svg", ""))
+    navaids.forEach((m) => { if ( m.options.icon.options.iconUrl.replace("media/", "").replace(".svg", "") == "airport" ) { airport_layer.addLayer(m); } else { navaid_layer.addLayer(m); } })
+
+    let commands_layer = L.layerGroup().addTo(map);
+    commands.forEach((m) => { commands_layer.addLayer(m); })
+
+    const overlayMaps = {
+        "Navaids": navaid_layer,
+        "Airports": airport_layer,
+        "Commands": commands_layer
+    };
+    const layerControl = L.control.layers(null, overlayMaps).addTo(map);
+
     map.on("zoomend", mapZoomed);
     map.on("moveend", mapPanned);
     map.fitBounds(chartData[LATLNGS]);
-
-    // add nav aids
-    // could be placed in additional layer
-    navaids.forEach((m) => { m.addTo(map); })
-
-    // add command occurences
-    commands.forEach((m) => { m.addTo(map); })
 }
 
 // MAP ZOOM MANAGEMENT
@@ -889,28 +896,26 @@ function buildCharts() {
 
     // Prepare HTML
     container = document.getElementById("charts");
-    // Speed/altitude chart
+    // Speed/altitude chart (always)
     let canvas = document.createElement("canvas");
     canvas.id = SPEED_ALT_CHART;
     container.appendChild(canvas);
-    // Buttons
+    // Buttons (always)
     let buttons = document.createElement("div");
     buttons.id = "buttons";
     container.appendChild(buttons);
-    // Timeline
-    let tl = document.createElement("div");
-    tl.id = "timeline";
-    tl.classList.add("timeline");
-    let tlc = document.createElement("canvas");
-    tlc.id = "timelineChart";
-    tl.appendChild(tlc);
-    container.appendChild(tl);
 
     // special charts if data available
     if (commandFeatures.length > 0) {
+        // Timeline
+        let tl = document.createElement("div");
+        tl.id = "timeline";
+        tl.classList.add("timeline");
+        let tlc = document.createElement("canvas");
+        tlc.id = "timelineChart";
+        tl.appendChild(tlc);
+        container.appendChild(tl);
         buildTimeline(commandFeatures);
-    } else {  // no command execution, hide div
-        tl.style.display = "none";
     }
 
     // guess properties list from first point feature
@@ -1567,7 +1572,7 @@ function resetZoom() {
     Object.values(allCharts).forEach( (c) => {
         c.resetZoom()
     });
-    fetchChart.resetZoom();
+    // fetchChart.resetZoom();
     panOK = false;
     adjustCharts = false;
     console.log("zoom reset")
@@ -1711,7 +1716,7 @@ function build(text, filetype) {
     }
     buildMap(geojson);
     buildCharts();
-    makeFetchChart(); // temporary
+    // makeFetchChart(); // temporary
 }
 
 document.documentElement.addEventListener("dragover", (e) => {
@@ -1741,24 +1746,24 @@ document.documentElement.addEventListener("drop", (e) => {
 });
 
 ////////////////////////////////////////////////////////////////
-//
-////////////////////////////////////////////////////////////////
-let timer;
-function startFetch({chart}) {
-    const {min, max} = chart.scales.x;
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-        console.log('fetched data between ' + min + ' and ' + max);
-        chart.data.datasets[0].data = fetchData(SPEED_DATA, min, max);
-        chart.data.datasets[1].data = fetchData(ALTITUDE_DATA, min, max);
-        chart.stop(); // make sure animations are not running
-        chart.update('none');
-    }, 500);
-}
-
+// Experimental
+// ADD: <canvas id="fetchChart"></canvas>
+var fetchChart;
 function makeFetchChart() {
     // TEMPORARY DEMO
+    let timer;
     const zoomStatus = (chart) => (fetchZoomOptions.zoom.wheel.enabled ? 'enabled' : 'disabled') + ' (' + chart.getZoomLevel() + 'x)';
+    const startFetch = function(chart) {
+        const {min, max} = chart.scales.x;
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+            console.log('fetched data between ' + min + ' and ' + max);
+            chart.data.datasets[0].data = fetchData(SPEED_DATA, min, max);
+            chart.data.datasets[1].data = fetchData(ALTITUDE_DATA, min, max);
+            chart.stop(); // make sure animations are not running
+            chart.update('none');
+        }, 500);
+    }
     let c = Math.round(Math.random() * 20)
 
     const data = {
