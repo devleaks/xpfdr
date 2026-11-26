@@ -80,6 +80,7 @@ CHANGELOG
 2.1.4 16-OCT-2026 For airbus: Detect caution/warning and increase sampling rate during crisis up to 60 seconds after
 2.1.5 20-OCT-2026 Code cleanup, blackened
 2.1.6 11-OCT-2026 Code cleanup
+2.1.7 26-NOV-2026 Code cleanup, prepare regression for Kalman?
 
 """
 
@@ -132,7 +133,7 @@ SCRIPT_NAME = os.path.basename(__file__)
 
 # Script meta
 NAME = "FDR"
-VERSION = "2.1.5"
+VERSION = "2.1.7"
 DESCRIPTION = "Flight Data Recordder"
 
 # Script UI
