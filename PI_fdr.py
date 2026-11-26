@@ -79,6 +79,7 @@ CHANGELOG
 2.1.3 16-OCT-2026 Added global phase status reporting in case of abnormal phase changes
 2.1.4 16-OCT-2026 For airbus: Detect caution/warning and increase sampling rate during crisis up to 60 seconds after
 2.1.5 20-OCT-2026 Code cleanup, blackened
+2.1.6 11-OCT-2026 Code cleanup
 
 """
 
@@ -161,7 +162,7 @@ LINREG_LEN = 10  # number of points in linear regression
 DREF_SUB = "${x}"
 UTC_TIME = "UTC Time"  # rendez-vous string
 
-# Thresholds
+# Thresholds (general, not specific)
 MIN_SPEED = 1.0  # m/s, below that speed is stopped
 MIN_LIFTOFF_AGL = 10.0  # m  > means in air, AGL is CG of aircraft, != 0 when on ground.
 MAX_LANDING_AGL = 30.0  # m  < means on the ground (almost)
@@ -632,15 +633,15 @@ NAVAID_FREQUENCIES = [
 # Faster collection on takeoff, approach, landing, slower collection on cruise, when stopped...
 #
 
-# Thresholds
-S80KT = 80 * 0.5144444  # m/s
-FAST = 500  # 1 Mach = 340.29m/s, sea level
-A1500FT = 1500 * 0.3048  # m
-A800FT = 800 * 0.3048  # m
-MIN_AGL = 10.0  # m, must take into account aircraft CG elev AGL, make higher for A380
-ENG_PWR = 1500  # Thrust in N to assume engine to power
-ENG_OFF = 100  # Thrust in N, minimal to assume engine started
-FIVEMIN = 300.0  # secs
+# Thresholds (specific to Airbus flight phase handling)
+S80KT = 80 * 0.5144444  # m/s (80kt in m/s)
+FAST = 500.0  # m/s, 1 Mach = 340.29m/s, sea level
+A1500FT = 1500 * 0.3048  # m (1500ft in m)
+A800FT = 800 * 0.3048  # m (800ft in m)
+MIN_AGL = 10.0  # m, must take into account aircraft CG elev AGL, make higher for A380, above that: In the air!
+ENG_PWR = 1500.0  # Thrust in N to assume engine to power
+ENG_OFF = 100.0  # Thrust in N, minimal to assume engine started
+FIVEMIN = 5 * 60.0  # secs (5 minutes in seconds)
 
 
 class AIRBUS_PHASE(IntEnum):
@@ -751,14 +752,6 @@ class AirbusFlightPhase:
     def ecam_flight_phase_str(self) -> str:
         return AIRBUS_PHASE(self.get_value("ecam_flight_phase", 0)).name
 
-    def speed_regression_reliable(self) -> bool:
-        r, e, cnt, diff = self.speed_lr()
-        return cnt > 4
-
-    def altitude_regression_reliable(self) -> bool:
-        r, e, cnt, diff = self.vertical_lr()
-        return cnt > 4
-
     #
     # Shortcuts to situations
     @property
@@ -868,7 +861,7 @@ class AirbusFlightPhase:
                     return set_phase(phase=AIRBUS_PHASE.DECEL80KT, message="stopped and had air time")  # wait for engine to stop
                 return current_phase
             ## DARK GREY MATTER: Less than 80KT and not stopped: Accelerating or decelerating?
-            if self.speed_regression_reliable:
+            if self.spd_reg()[1]:  # is reliable?
                 if self.spd_reg()[0] > 0.0:  # taxiing or accelerating, we will eventually reach 80kt
                     return return_current("not stopped, accelerating")
                 # Decelerating: taxiing or end of roll?
@@ -890,7 +883,7 @@ class AirbusFlightPhase:
 
         if current_phase == AIRBUS_PHASE.LIFTOFF:
             ## GREY MATTER: Less than 1500FT, but in the air...
-            if self.altitude_regression_reliable:
+            if self.alt_reg()[1]:  # is reliable?
                 if self.alt_reg()[0] > 0:  # climbing, we will eventually reach >1500ft
                     return return_current("lifted off, climbing")
                 # Descending
@@ -959,7 +952,6 @@ class AirbusFlightPhase:
         # Check: Go below 800ft, then back above, then back below
         # No more velocity, stopped?
         # No more altitude, crashed?
-
 
         return return_current("all conditions failed")
 
@@ -1037,7 +1029,7 @@ class AirbusFlightPhase:
                         return set_phase(phase=AIRBUS_PHASE.DECEL80KT, message="stopped and had air time")  # wait for engine to stop
                     return set_inited("stopped, no air time")  #  wait for movement
                 ## DARK GREY MATTER: Less than 80KT and not stopped: Accelerating or decelerating?
-                if self.speed_regression_reliable:
+                if self.spd_reg()[1]:  # is reliable?
                     if self.spd_reg()[0] > 0.0:  # taxiing or accelerating, we will eventually reach 80kt
                         return set_inited("not stopped, accelerating")
                     # Decelerating: taxiing or end of roll?
@@ -1060,7 +1052,7 @@ class AirbusFlightPhase:
 
             if self.current.phase == AIRBUS_PHASE.LIFTOFF:
                 ## GREY MATTER: Less than 1500FT, but in the air...
-                if self.altitude_regression_reliable:
+                if self.alt_reg()[1]:  # is reliable?
                     if self.alt_reg()[0] > 0:  # climbing, we will eventually reach >1500ft
                         return set_inited("lifted off, climbing")
                     # Descending
@@ -1369,7 +1361,7 @@ class PythonInterface:
         self.custom_chocks = None  # for formal OOOI
 
         self._afp = None  # ToLiss/Airbus specific
-        self._afp_saved = None
+        self._afp_cfp = None
 
         # navaids
         self.navaid_freqs: List[FDRData] = NAVAID_FREQUENCIES  # default frequencies that are scanned
@@ -1490,14 +1482,13 @@ class PythonInterface:
         try:
             # ################################################
             #
+            # AIRBUS FLIGHT PHASE
+            #
             if self.use_airbus:
                 np = self._afp.flight_phase(dt=self.simulator_zulu_datetime)
-                if self._afp_saved is None:
+                if self._afp_cfp is None or np.phase != self._afp_cfp.phase:  # report detected phase changes
                     self.fdr_comment(f"AirbusFlightPhase(phase={np.phase.name}, ts={self.simulator_zulu_datetime}, index={self.writes})")
-                    self._afp_saved = np
-                elif np.phase != self._afp_saved:
-                    self.fdr_comment(f"AirbusFlightPhase(phase={np.phase.name}, ts={self.simulator_zulu_datetime}, index={self.writes})")
-                    self._afp_saved = np
+                    self._afp_cfp = np
             #
             # ################################################
 
@@ -1641,8 +1632,15 @@ class PythonInterface:
             self.elevs = self.elevs[-10:]
 
     def vertical_lr(self) -> tuple:
-        # Linear regression on last altitude checkpoints to monitor trend (descending/ascending)
-        # Returns   a, error, number of points, last - oldest
+        """Linear regression on last altitude checkpoints to monitor trend (descending/ascending)
+                a * time + b
+
+        We only are interested in sign(a), to be checked against (last - oldest),
+        acceptable error, and minimal number of points.
+
+        Returns:
+            tuple: (a, error, number of points, last - oldest)
+        """
         if len(self.elevs) < 3:
             diff = 0 if len(self.elevs) < 2 else self.elevs[-1][1] - self.elevs[0][1]
             return 0.0, 0.0, len(self.elevs), diff
@@ -1653,9 +1651,49 @@ class PythonInterface:
         nx2 = sum([(a[0] - mx) * (a[0] - mx) for a in self.elevs])
         ny2 = sum([(a[1] - my) * (a[1] - my) for a in self.elevs])
         nxy = sum([(a[0] - mx) * (a[1] - my) for a in self.elevs])
-        r2 = ny2 / (len(self.elevs) - 2)
-        r = math.sqrt(r2)
-        return nxy / math.sqrt(nx2 * ny2) if nx2 != 0.0 and ny2 != 0.0 else 0.0, r, len(self.elevs), self.elevs[-1][1] - self.elevs[0][1]
+        mse = ny2 / len(self.elevs)
+        rmse = math.sqrt(mse)
+        # r2 = ny2 / (len(self.elevs) - 2)
+        # r = math.sqrt(r2)
+        return nxy / math.sqrt(nx2 * ny2) if nx2 != 0.0 and ny2 != 0.0 else 0.0, rmse, len(self.elevs), self.elevs[-1][1] - self.elevs[0][1]
+
+    def vlr(self, verbose: bool = False) -> tuple:
+        """Returns vertical trend and whether the info is reliable
+
+           Climb = 1 if climbing, -1 if descending, 0 if more or less stationary (abs(a) < 0.05)
+
+        Returns:
+            tuple: (climb, reliable)
+        """
+        VS = 0.90  # ft/sec
+        MIN_VS = 0.25  # ft/sec
+        DV = 100.0  # ft
+
+        def sign(x):
+            return 1 if x > 0 else -1 if x < 0 else 0
+
+        a, err, cnt, diff = self.vertical_lr()
+        r = cnt > 4 and err > VS and sign(a) == sign(diff)
+        c = sign(a) if abs(a) > VS or diff > DV else 0
+        if not r:
+            r = abs(a) < MIN_VS and sign(a) != sign(diff)
+        # justification
+        why = ""
+        if sign(a) != sign(diff):
+            why = "reg and diff differ"
+            if abs(a) < MIN_VS:
+                why += " but vs small"
+        elif err <= VS:
+            why = "err too low"
+        elif cnt < 5:
+            why = "cnt too low"
+        elif diff <= DV:
+            why = "diff too low"
+        elif abs(a) <= VS:
+            why = "vs too low"
+        if why != "":
+            why = f", {why}"
+        return c, r, f"(vlr: {a}, {err}, {cnt}, {diff}{why})"
 
     def add_speed(self, dt: datetime, speed: float):
         # Add (timestamp, elevation) to limited list for regression
@@ -1679,6 +1717,28 @@ class PythonInterface:
         r2 = ny2 / (len(self.speeds) - 2)
         r = math.sqrt(r2)
         return nxy / math.sqrt(nx2 * ny2) if nx2 != 0.0 and ny2 != 0.0 else 0.0, r, len(self.speeds), self.speeds[-1][1] - self.speeds[0][1]
+
+    def slr(self, verbose: bool = False) -> tuple:
+        """Returns speed trend and whether the info is reliable
+
+           Accelerate = 1 if accelerating, -1 if slowing down, 0 if more or less constant speed
+
+        Returns:
+            tuple: (accelerate, reliable)
+        """
+        VS = 0.05  # m/s^2
+        MIN_VS = 0.05  # m/s^2
+        DS = 0.30  # m/s
+
+        def sign(x):
+            return 1 if x > 0 else -1 if x < 0 else 0
+
+        a, err, cnt, diff = self.speed_lr()
+        r = cnt > 4 and sign(a) == sign(diff)
+        c = sign(a) if abs(a) > VS or diff > DS else 0
+        if not r:
+            r = abs(a) < MIN_VS and sign(a) != sign(diff)
+        return c, r, f"(slr: {a}, {err}, {cnt}, {diff})"
 
     @property
     def replay_mode(self) -> bool:
@@ -2151,9 +2211,7 @@ class PythonInterface:
         #
         if AIRBUSPHASE and self.is_airbus:
             all_datarefs_by_name = self.header | self.fdr_info | self.fdr_mand | self.fdr_data
-            self._afp = AirbusFlightPhase(
-                dt=self.simulator_zulu_datetime, datarefs=all_datarefs_by_name, alt_reg=self.vertical_lr, spd_reg=self.speed_lr, airtime=self.had_air_time
-            )
+            self._afp = AirbusFlightPhase(dt=self.simulator_zulu_datetime, datarefs=all_datarefs_by_name, alt_reg=self.vlr, spd_reg=self.slr, airtime=self.had_air_time)
             if self._afp.valid:
                 self.debug("install_preferences: AirbusFlightPhase enabled, supervisor uses Airbus logic", force=True)
             else:
@@ -2195,7 +2253,8 @@ class PythonInterface:
 
             # ################################################
             #
-            # If using Airbus logic:
+            # AIRBUS FLIGHT PHASE
+            #
             if self.use_airbus:
                 if self.recorder_running:
                     if self._afp.can_turn_off(self.simulator_zulu_datetime):

@@ -578,7 +578,7 @@ function parseGeoJSONFile(text) {
 function point_props(props) {
     let s = "<b>UTC Time " + props["UTC Time"].substr(11,12) + "</b><br/>";
     Object.keys(props).forEach( (p) => {
-        if (["_raw_ts", "id", "UTC Time"].indexOf(p) == -1) {
+        if (["_raw_ts", "UTC Time"].indexOf(p) == -1) {
             s += "<b>" + p.replaceAll("_", " ") + "</b>: <i>";
             let v= props[p];
             if (isNaN(v)) {
@@ -716,7 +716,7 @@ function buildMap(geojson) {
             moveMapCursor(f.id);
             moveChartCursor(f.id);
         });
-        m.bindTooltip(f.properties["UTC Time"].substr(11,12));
+        m.bindTooltip(f.properties["UTC Time"].substr(11,12) + " ("+ f.id + ")");
         m.bindPopup(point_props(f.properties));
         return m;
     });
