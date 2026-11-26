@@ -1,0 +1,1901 @@
+<html>
+<head>
+    <link rel="stylesheet" href="leaflet/leaflet.css" />
+    <script src="leaflet/leaflet.js"></script>
+    <script src="luxon/luxon.js"></script>
+    <script src="chartjs/chart.umd.js"></script>
+    <script src="chartjs/chartjs-adapter-luxon.umd.js"></script>
+    <script src="chartjs/chartjs-plugin-zoom.js"></script>
+    <style>
+        body {
+            background-color: #222;
+            background-repeat:no-repeat;
+            background-position: center center;
+            background-image: url(media/welcome-on.png);
+            color: #ddd;
+        }
+        body.dragging {
+            background-image: url(media/welcome-off.png);
+        }
+        #map {
+            height: 500px;
+        }
+        #charts {
+            height: 200px;
+        }
+        .chart {
+            vertical-align: top;
+            float: left;
+            height: 200px;
+        }
+        #buttons {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+        }
+        .timeline {
+            height: 200px;
+            clear: both;
+        }
+        #footer {
+            bottom: 0px;
+            color: #ddd;
+            font-family: sans-serif;
+            font-size: x-small;
+            margin-bottom: 4px;
+            position: absolute;
+            text-align: center;
+            width: 100%;
+        }
+        #footer a {
+            color: #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="charts"></div>
+    <div id=footer>
+        Map by <a href="https://leafletjs.com">Leaflet</a>,
+        charts by <a href="https://www.chartjs.org">ChartJS</a>,
+        <a href="https://github.com/devleaks/xpfdr">GitHub for this project</a>.
+    </div>        
+<script language="javascript">
+/*
+CHANGELOG
+
+1.0.0 07-SEP-2026 Initial reelase
+1.3.0 17-SEP-2026 Display command execution on map
+1.4.0 17-SEP-2026 Now load CSV file, especially those produced by fdr_writer.
+1.4.1 17-SEP-2026 Code cleanup.
+1.5.0 18-SEP-2026 Refinements, dark mode, better tooltip, etc.
+1.6.0 20-SEP-2026 First distribuable release with viewer
+1.7.0 23-SEP-2026 Allow for chart grouping
+1.8.0 24-SEP-2026 Attempt to display timeline of execution of commands with ChartJS
+1.8.1 25-SEP-2026 Now display timeline of execution of commands with ChartJS, no added package
+1.9.0 15-OCT-2026 Add decimation to charts, build decimation for leaflet points
+1.10.0 16-OCT-2026 Auto grouping of data from same dataref (array) ! weak _indices parsing (unsure of regex).
+1.11.0 03-NOV-2026 Clip flight if possible (toke-off - x minutes, to landing + y minutes).
+1.12.0 03-NOV-2026 Normalized. Added map layers.
+
+TO DO
+  - Add buttons to zoom on take-off or landing. (from OOOI)
+
+*/
+
+const VERSION = "1.12.0"
+
+// File types for FDR: GeoJSON
+const ALLOWED_FILE_TYPES = ["application/json", "application/geo+json", "text/plain", "text/csv", ""]
+// Each point in the geojson file will be represented by this almost transparent icon.
+// The goal is to provide interactivity and react when the icon is hover'ed.
+// If number of point exceeds a threshold, a sampling should be used.
+// If necessary, icon can be enlarged.
+// Build inline icon here: https://png-pixel.com
+const TRANSPARENT_ICON = L.icon({
+    iconUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==",
+    iconSize: [4, 4], // size of the icon
+    iconAnchor: [2, 2], // point of the icon which will correspond to marker's location
+    popupAnchor: [-5, -5] // point from which the popup should open relative to the iconAnchor
+});
+
+// This icon represents the position of the aircraft in the analysis.
+// (silhouette of a A320)
+const AIRCRAFT_ICON_SIZE = 32
+const AIRCRAFT_ICON_ROTATION = 0  // deg
+const AIRCRAFT_COLOR = [0, 0, 192]
+const AIRCRAFT_ICON = L.icon({
+    iconUrl: "data:image/svg+xml,%3Csvg width%3D%22100%25%22 height%3D%22100%25%22 viewBox%3D%220 0 826 826%22 version%3D%221.1%22 xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 xmlns%3Axlink%3D%22http%3A%2F%2Fwww.w3.org%2F1999%2Fxlink%22 xml%3Aspace%3D%22preserve%22 xmlns%3Aserif%3D%22http%3A%2F%2Fwww.serif.com%2F%22 style%3D%22fill-rule%3Aevenodd%3Bclip-rule%3Aevenodd%3Bstroke-linejoin%3Around%3Bstroke-miterlimit%3A2%3B%22%3E%3Cg transform%3D%22matrix(1%2C0%2C0%2C1%2C416%2C79)%22%3E%3Cpath d%3D%22M-1.714%2C-0.336C8.374%2C-0.336 14.25%2C10.744 18.188%2C20.031C26.11%2C40.454 32%2C199.4 32%2C196C40.047%2C200.371 88%2C227 88%2C227C88%2C227 86.185%2C201.867 89%2C196C93.697%2C191.303 104.74%2C192.785 111.125%2C192.75L114.004%2C192.688C119.749%2C192.656 124.038%2C192.973 129%2C196C131.92%2C200.788 130.195%2C245.368 131%2C248C133.359%2C250.387 370.448%2C383.785 371.15%2C384.177C373.119%2C385.203 373.119%2C385.203 376%2C385L376.875%2C382.563C378%2C380 378%2C380 380%2C379C381.645%2C384.979 382.578%2C390.765 383.125%2C396.938L383.38%2C399.793C384.644%2C415.426 384.737%2C431.397 383%2C447L381%2C447C379.293%2C443.587 379.203%2C439.702 378.695%2C435.945C377.948%2C432.779 377.142%2C431.404 375%2C429C373.045%2C427.886 256.349%2C387.47 254%2C387C254%2C387 112.284%2C345.142 110%2C344C110%2C344 38.496%2C355.33 32%2C356.5C31.089%2C359.232 30.633%2C407.465 30.599%2C417.161C30.465%2C453.123 27.07%2C511.913 28%2C507C30.656%2C508.26 122%2C578 122%2C578C123.215%2C581.4 123.021%2C605.866 123%2C609C114.129%2C607.024 16.945%2C581.006 14%2C580C14%2C580 1.797%2C610.533 1.551%2C614.19L-3.952%2C654.387L-8.735%2C614.374C-8.735%2C614.374 -21%2C583 -21%2C581C-34.407%2C584.007 -128.884%2C609 -130%2C609C-129.889%2C604.999 -128.842%2C581.662 -128.842%2C581.662C-128.173%2C577.161 -37.267%2C508.996 -35.734%2C507.82C-35.74%2C505.243 -37.08%2C419.789 -37.069%2C413.562C-37.058%2C407.179 -37.021%2C368.971 -37%2C356.5C-40.759%2C355.213 -117%2C344 -117%2C344C-117%2C344 -262.876%2C387.164 -264.813%2C387.75C-264.813%2C387.75 -379.932%2C428.339 -383%2C430C-383.946%2C432.763 -384.653%2C435.29 -385.25%2C438.125L-385.773%2C440.41C-386.197%2C442.27 -386.601%2C444.135 -387%2C446L-388%2C446C-390.521%2C426.911 -390.852%2C408.209 -388.625%2C389.063L-388.243%2C385.757C-387.505%2C380.037 -387.505%2C380.037 -387%2C378L-385%2C377L-382%2C385C-378.78%2C384.195 -137.816%2C249.059 -137%2C247C-136.935%2C245.483 -137.568%2C199.751 -134.632%2C195.867C-128.769%2C191.707 -121%2C192.784 -114.063%2C192.75L-110.854%2C192.688C-104.771%2C192.657 -100.342%2C193.006 -95%2C196C-93%2C198 -92.959%2C222.715 -93%2C226C-85.091%2C222.166 -42%2C197 -38%2C197C-38%2C198.98 -33.461%2C46.277 -22%2C20.031C-22%2C20.031 -11.801%2C-0.336 -1.714%2C-0.336Z%22 style%3D%22fill%3Argb("+AIRCRAFT_COLOR.join("%2C")+")%3Bfill-rule%3Anonzero%3B%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E",
+    iconSize: [AIRCRAFT_ICON_SIZE, AIRCRAFT_ICON_SIZE], // size of the icon
+    iconAnchor: [Math.round(AIRCRAFT_ICON_SIZE/2), Math.round(AIRCRAFT_ICON_SIZE/2)], // point of the icon which will correspond to marker's location
+    popupAnchor: [-(AIRCRAFT_ICON_SIZE+2), -(AIRCRAFT_ICON_SIZE+2)] // point from which the popup should open relative to the iconAnchor
+});
+
+
+// General FDR file content
+const HEADER_KEYWORDS = [
+  "ACFT",
+  "TAIL",
+  "TIME",
+  "DATE",
+  "PRES",
+  "TEMP",
+  "WIND",
+  "DISA",
+]
+
+const DATA_KEYWORDS = [
+  "COMM",
+  "DREF",
+  "CALI",
+  "WARN",
+  "TEXT",
+  "MARK",
+  "EVNT",
+//"DATA",
+]
+
+// Icons for NAVAID positions
+const NAVAID_ICON_SIZE = 16
+function NAVAID_ICON(navType) {
+    ICON_NAME = {
+        UNKNOWN: "media/userpoint_Closed.svg",
+        APT: "media/airport.svg",
+        NDB: "media/ndb.svg",
+        VOR: "media/vor.svg",
+        ILS: "media/ils.svg",
+        LOC: "media/loc.svg",
+        GS: "media/gls.svg",
+        OM: "media/userpoint_Airstrip.svg",
+        MM: "media/userpoint_Airstrip.svg",
+        IM: "media/userpoint_Airstrip.svg",
+        FIX: "media/waypoint.svg",
+        DME: "media/dme.svg",
+        LATLON: "media/userpoint_Waypoint.svg",
+        TACAN: "media/userpoint_TACAN.svg",
+        Command: "media/empty_circle.svg",
+    }
+    size = navType == "Airport" ? 2 * NAVAID_ICON_SIZE : NAVAID_ICON_SIZE;
+    return L.icon({
+        iconUrl: ICON_NAME[navType] ? ICON_NAME[navType] : ICON_NAME["Unknown"],
+        iconSize: [size, size], // size of the icon
+        iconAnchor: [Math.round(size/2), Math.round(size/2)], // point of the icon which will correspond to marker's location
+        popupAnchor: [-(size+2), -(size+2)] // point from which the popup should open relative to the iconAnchor
+    });
+}
+
+// Main chart shows speed and altitude (always)
+// Like at flightradar24 and flightaware.
+const TIME_DATA = "_raw_ts";
+const LATLNGS = "latlngs";
+const FEATURES = "features";
+const POINTS = "points";
+const NUM_POINTS = "count";  // number of points in each dataset
+
+const SPEED_ALT_CHART = "speedAltChart";
+
+const SPEED_DATA = "gs";  // name of GeoJSON feature property for speed
+const SPEED_CONVERT = {
+    "m/s": 1,
+    "km/h": 3.6,
+    "kt": 1.943844
+};
+const SPEED_UNIT = "kt";
+const SPEED_COLOR = [253, 128, 8];
+const SPEED_LABEL = "Ground speed"  // Grd spd
+
+// Two choices for altitude display: MSL or AGL
+// Altitude MSL: Shows aircraft behavior (in ft)
+const ALTITUDE_DATA = "altitude";  // name of GeoJSON feature property for altitude
+const ALTITUDE_CONVERT = {
+    "m": 0.3048,
+    "ft": 1,
+    "FL": 0.001
+};
+const ALTITUDE_UNIT = "ft";
+const ALTITUDE_COLOR = [15, 128, 255];
+const SHOW_ALTITUDE = true;  // include altitude in GeoJSON file
+const ALTITUDE_LABEL = "Altitude MSL"  // Alt MSL
+
+// Altitude AGL: Shows ground relief! (in meters)
+// const ALTITUDE_DATA = "agl";  // name of GeoJSON feature property for altitude
+// const ALTITUDE_CONVERT = {
+//     "m": 1,
+//     "ft": 3.280839895,
+//     "FL": 0.001
+// };
+// const ALTITUDE_UNIT = "ft";
+// const ALTITUDE_COLOR = [15, 128, 255];
+// const SHOW_ALTITUDE = true;  // include altitude in GeoJSON file
+// const ALTITUDE_LABEL = "Altitude above ground"  // Alt AGL
+
+// Line that is drawn on graph when aircraft is moved on map
+const CHART_CURSOR_COLOR = "rgba(102, 255, 255, 0.7)";
+
+// list of GeoJSON feature properties to ignore for charting
+const IGNORE = ["id", "UTC Time", "_raw_ts", "latitude", "longitude", "altitude", SPEED_DATA, ALTITUDE_DATA];
+
+// In CSV file, first line of file is column header, comma separated list of optionally quoted strings
+const CSV_COLUMN_NAMES = {  // Mandatory column names
+    timestamp: "_raw_ts",
+    latitude: "latitude",
+    longitude: "longitude",
+    altitude: ALTITUDE_DATA, // can be null
+    ground_speed: SPEED_DATA,  // can be null
+}
+
+const MAX_LINES = 3;  // ideal number of charts rows, BUT grows as needed to accomodate all data
+const MAX_COLUMNS = 4;  // reasonable max.
+const MAX_DATA_PER_CHART = 6;  // reasonable max.
+const COMPACT = 1;  // 0=no compact, 1=1 row max_col charts; 2=1 chart, max_col data
+const NO_CHART = "no-chart";  // keyword to remove data frmo chart
+const AUTO_CHART_ARRAY = true;  // automatically group all data from same datarefs (arrays)
+const AUTO_ADJUST_LAYOUT = true;
+const MAX_MAP_POINTS = 400;
+const MAX_CHART_POINTS = 400;
+
+var NUM_COLUMNS = 3;          
+var NUM_DATA_PER_CHART = 4;
+var RAW_FDR = false
+
+// Container for data
+class FDRData {
+    constructor(name, dataref, pyslice, _indices, callback, unit, factor, chart) {
+        this.name = name
+        this.dataref = dataref
+        this.pyslice = pyslice
+        this._indices = _indices
+        this.callback = callback
+        this.unit = unit
+        this.factor = factor
+        this.chart = chart
+    }
+}
+
+class NavAid {
+    constructor(name, lat, lon, navType, navAidId, height, heading, frequency, reg) {
+        this.name = name
+        this.lat = lat
+        this.lon = lon
+        this.navType = navType
+        this.navAidId = navAidId
+        this.height = height
+        this.heading = heading
+        this.frequency = frequency
+        this.reg = reg
+    }
+}
+
+// Code
+//
+// Globals
+var geojson = {};  // whole file
+
+// Charts
+var fdr_data = Array();  // charts meta data
+var chartData = {};  // all chart raw data {label: Array()}
+var chartNames = {};  // grouped datasets/properties into named charts
+var anonCharts = Array();  // other datasets/properties, not in groups
+var allCharts = {};
+
+var zoomIndex = [0, 0];  // visible part of flight
+var panOK = true;  // OK to (auto-)pan map when scanning values to move aircraft
+var adjustCharts = false;  // whether charts need adjustment after map action
+
+// Map
+var map; // leaflet map
+var mapCursor = undefined; // map cursor
+var flightpath;  // leaflet layer with all flight points
+
+function error(message) {
+    let container = document.getElementById("charts");
+    container.innerHTML = message;
+    console.error(message);
+}
+
+const KEYVALUEREGEX = /(\w+)=('.*?'|".*?"|\s*\w+\(.*?\)|[^,=\s\)]+)/g;
+const INDICESREGEX = /_indices[ \t]*=[ \t]*\[[ \t]*\d+(?:[ \t]*,[ \t]*\d+)+[ \t]*\]/g;
+function nameValue(s) {
+    let params = {};
+    let match;
+    while ((match = KEYVALUEREGEX.exec(s)) !== null) {
+        const key = match[1];
+        let value = match[2].replace(/,$/, "");
+        value = value.replace(/['"]$/, "");
+        value = value.replace(/^['"]/, "");
+        params[key] = value == "None" ? null : value;
+    }
+    // extract indices, highly specific! not generic at all
+    // search specifically for "_indices=[1, 2, 3]" string portion, then parse it
+    if ((match = INDICESREGEX.exec(s)) !== null) {
+        const INDICESREGEX2 = /\[[ \t]*\d+(?:[ \t]*,[ \t]*\d+)+[ \t]*\]/g;
+        let m2;
+        if ((m2 = INDICESREGEX2.exec(s)) != null) {
+            let ms = m2[0];
+            let arr = ms.replace("[", "").replace("]", "").replaceAll(" ", "").split(",")
+            for(let i=0; i<arr.length; i++) {
+                arr[i] = parseInt(arr[i]);
+            }
+            params["_indices"] = arr;
+            // console.log("_indices", match, m2, arr);
+        }
+    }
+    return params;    
+}
+
+// parse input file into geojson feature
+function parseCSVFile(text) {
+    let geojson = {}
+    const lines = text.split("\n");
+    let columns = lines[0].toLowerCase().split(","); // assumes first line is column header
+    const lat_idx = columns.indexOf(CSV_COLUMN_NAMES.latitude);
+    const lon_idx = columns.indexOf(CSV_COLUMN_NAMES.longitude);
+    const ts_idx = columns.indexOf(CSV_COLUMN_NAMES.timestamp);
+    if (ts_idx == -1 || lat_idx == -1 || lon_idx == -1) {
+        error("No time, latitude and longitude in file");
+        return {};
+    }
+    console.log(columns);
+    const alt_idx = CSV_COLUMN_NAMES.altitude ? columns.indexOf(CSV_COLUMN_NAMES.altitude) : -1;
+    const gs_idx = CSV_COLUMN_NAMES.ground_speed ? columns.indexOf(CSV_COLUMN_NAMES.ground_speed) : -1;
+    console.log("indices", ts_idx, lat_idx, lon_idx, alt_idx, gs_idx);
+    let i = 1;
+    let count = 0;
+    let fc = []
+    columns = lines[0].toLowerCase().split(","); // assumes first line is column header
+    while(i < lines.length) {
+        let line = lines[i].trim();
+        if (line == "") {
+            i++;
+            continue;
+        }
+        const values = line.split(",");
+        if (values.length != columns.length) {
+            console.warn("columns/values: non matching length", i, columns.length, values.length);
+            continue;
+        }
+        let coords = [parseFloat(values[lon_idx]), parseFloat(values[lat_idx])]
+        if (alt_idx > -1) {
+            coords.push(parseFloat(values[alt_idx]))
+        }
+        let ts = parseFloat(values[ts_idx])
+        let d = new Date(ts);
+        let props = {
+            "UTC Time": d.toISOString(),
+            "_raw_ts": d.getTime(), // == ts
+        }
+        if (alt_idx != -1) {
+            props[ALTITUDE_DATA] = values[alt_idx];
+        }
+        if (gs_idx != -1) {
+            props[SPEED_DATA] = values[gs_idx];
+        }
+        for(j=1; j < values.length; j++) {
+            props[j < columns.length ? columns[j] : "prop" + j] = isNaN(values[j]) ? values[j] : parseFloat(values[j]);
+        }
+        let p = {
+            type: "Feature",
+            geometry: {
+                type: "Point",
+                coordinates: coords
+            },
+            "properties": props
+        }
+        fc.push(p);
+        i++;
+    }
+    geojson = {
+        type: "FeatureCollection",
+        features: fc
+    }
+    return geojson;
+}
+
+function parseFDRFile(text) {
+    // \r CR 0x0D (13 decimal), \l LF 0x0A (10 decimal).
+    let arch = String.fromCharCode(text.charCodeAt(0))
+    if (["A", "I"].indexOf(arch) == -1) {
+        error("invalid X-Plane FDR file architecture", arch);
+        return {};
+    }
+    console.log("FDR file architecture", arch);
+
+    let cr = text.charCodeAt(1)
+    if (cr != 13) {
+        console.warn("end of first line should be CR (decimal 13); got", cr);
+    }
+    let nl = text.charCodeAt(2)
+    if (nl == 10) { // ok...
+        console.warn("got extra LF (decimal 10)", nl);
+        nl = text.charCodeAt(3)
+    }
+    if (nl != 51 && nl != 52) {  // "3" and "4"
+        error("invalid X-Plane FDR file version", String.fromCharCode(nl), nl);
+        return {};
+    }
+    let fdr_version = nl - 48;
+    if ([3, 4].indexOf(fdr_version) == -1) {
+        error("invalid X-Plane FDR file version", fdr_version);
+        return {};
+    }
+    console.log("FDR data format version", fdr_version);
+
+    let lines = text.split(arch == "A" ? "\n" : "\r");
+    console.log("records", lines.length);
+
+    let i = 2;
+    let date = new Date();
+    let data = Array();
+    let navaids = Array();
+    let commands = Array();
+    let columns = Array();
+    let fc = Array();
+    let count = 0;
+    while(i < lines.length) {
+        if (lines[i].trim() == "") {
+            i++;
+            continue;
+        }
+        let line = lines[i].replace(/(\r\n|\n|\r)/gm, "").trim().split(",");
+        if (HEADER_KEYWORDS.indexOf(line[0].trim()) > -1) {
+            if (line[0].trim() == "DATE") {
+                let a = line.slice(1).join(",").split("/");
+                date = new Date(a[2], a[0]-1, a[1]);
+                console.log(date);
+            }
+            // console.log(lines[i]);
+            i++;
+            continue;
+        }
+        if (DATA_KEYWORDS.indexOf(line[0].trim()) > -1) {
+            if (line[0].trim() == "COMM") {
+                let a = line.slice(1).join(",").trim();
+                if (a.startsWith("FDRData(")) {
+                    let params = nameValue(a)
+                    let d = new FDRData(
+                        params["name"],
+                        params["dataref"],
+                        params["pyslice"],
+                        params["_indices"],
+                        params["callback"],
+                        params["unit"],
+                        params["factor"],
+                        params["chart"]
+                    );
+                    fdr_data.push(d);
+                    // console.log(d);
+                } else if (a.startsWith("NavAid(")) {
+                    let params = nameValue(a)
+                    let d = {
+                        type: "Feature",
+                        geometry: {
+                            type: "Point",
+                            coordinates: [parseFloat(params["lon"]), parseFloat(params["lat"])]
+                        },
+                        "properties": {
+                            name: params["name"].replaceAll('"', ""),
+                            navType: params["navType"],
+                            navAidId: params["navAidId"],
+                            height: parseFloat(params["height"]).toFixed(1),
+                            heading: parseFloat(params["heading"]),
+                            frequency: parseFloat(params["frequency"]) > 8000 ?
+                                            parseFloat(params["frequency"])/100 : parseFloat(params["frequency"]),
+                            reg: parseFloat(params["reg"])
+                        }
+                    };
+                    navaids.push(d)
+                    // console.log(d)
+                } else if (a.startsWith("Command(")) {
+                    let params = nameValue(a)
+                    let d = {
+                        type: "Feature",
+                        geometry: {
+                            type: "Point",
+                            coordinates: [0.0, 0.0]  // geometry: chartData[FEATURES][params["index"]]["geometry"],
+                        },
+                        "properties": {
+                            command: params["name"],
+                            "UTC Time": params["when"],
+                            index: parseInt(params["index"]),
+                            phase: parseInt(params["phase"]),
+                            before: parseInt(params["before"]),
+                            category: params["category"]
+                        }
+                    };
+                    commands.push(d)
+                    // console.log(d)
+                } else if (a.startsWith("UTC")) {
+                    columns = a.split(",");
+                    for(j=0;j<columns.length;j++) {
+                        columns[j] = columns[j].trim();
+                    }
+                    console.log(columns);
+                }
+            }
+            // console.log(lines[i]);
+            i++;
+            continue;
+        }
+        // raw
+        if (line[0] == "DATA") {
+            line = line.slice(1)
+        }
+        data.push(line);
+        // GeoJSON Feature
+        let d;
+        if (fdr_version == 3) {
+            let t = parseInt(line[0].trim());
+            d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, t);
+        } else {
+            let t = line[0].trim().split(":");
+            let ms = Math.round(1000 * (t[2] - Math.round(t[2])))
+            d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), t[0], t[1], Math.round(t[2]), ms);
+            d.setUTCHours(t[0]);
+            // console.log("date", date, t, ms, d)
+        }
+        let props = {
+            "UTC Time": d.toISOString(),
+            "_raw_ts": d.getTime(),
+            "elevation": line[2],
+        }
+        for(j=1; j < line.length; j++) {
+            props[j < columns.length ? columns[j] : "prop" + j] = isNaN(line[j]) ? line[j] : parseFloat(line[j]);
+        }
+        let f = {
+            id: count++,
+            type: "Feature",
+            geometry: {
+                type: "Point",
+                coordinates: [parseFloat(line[1]), parseFloat(line[2])]
+            },
+            properties: props
+        }
+        if (SHOW_ALTITUDE) {
+            f.geometry.coordinates.push(parseFloat(line[3]));
+        }
+        fc.push(f);
+        i++;
+    }
+    fc = fc.concat(navaids, commands);
+    let geojson = {
+        type: "FeatureCollection",
+        features: fc
+    }
+    // console.log(geojson);
+    // transpose data array:
+    // output = array[0].map((_, colIndex) => array.map(row => row[colIndex]));
+    RAW_FDR = true
+    return geojson;
+}
+
+function parseGeoJSONFile(text) {
+    return JSON.parse(text);
+}
+
+// MAP
+//
+// popup content for chart elements
+function point_props(props) {
+    let s = "<b>UTC Time " + props["UTC Time"].substr(11,12) + "</b><br/>";
+    Object.keys(props).forEach( (p) => {
+        if (["_raw_ts", "UTC Time"].indexOf(p) == -1) {
+            s += "<b>" + p.replaceAll("_", " ") + "</b>: <i>";
+            let v= props[p];
+            if (isNaN(v)) {
+                s += v;
+            } else {
+                let d = 0;
+                switch(p) {
+                case "latitude":
+                case "longitude":
+                    d = 6;
+                    break;
+                case "pitch":
+                case "roll":
+                    d = 2;
+                    break;
+                default:
+                    d = 0;
+                }
+                s += d > 0 ? parseFloat(v.toFixed(d)) : Math.round(v);
+            }
+            s+= "</i><br/>";
+        }
+    });
+    return s
+}
+
+function navaid_props(props) {
+    let s = "NAVAID <b>" + props["navAidId"] + "</b><br/>";
+    Object.keys(props).forEach( (p) => {
+        if (["id", "reg", "navAidId"].indexOf(p) == -1) {
+            s += "<b>" + p.replaceAll("_", " ") + "</b>: <i>" + props[p] + "</i><br/>";
+        }
+    });
+    return s
+}
+
+function command_props(props) {
+    let s = "";
+    Object.keys(props).forEach( (p) => {
+        if (["id"].indexOf(p) == -1) {
+            s += "<b>" + p.replaceAll("_", " ") + "</b>: <i>" + props[p] + "</i><br/>";
+        }
+    });
+    return s
+}
+
+function sort_features(first, second) {
+    return first.properties["_raw_ts"] - second.properties["_raw_ts"];
+}
+
+function clip(features) {
+    const BEFORE_TO = 120.0; // seconds
+    const AFTER_TD = 120.0; // seconds
+    const ALT_MIN = 10.0;  // m
+    const SPEED_MIN = 30.0;  // kt
+    const ts = features.map((p) => p.properties._raw_ts * (RAW_FDR ? 1 : 1000)).sort();
+
+    // save orignal id, you'll need it
+    features.forEach( (f) => {
+        f._id = f.id;
+    });
+
+    // find take off if any
+    let alt = 0.0, spd = 0.0, i = 0, tt;
+    while ((alt < ALT_MIN || spd < SPEED_MIN) && i < features.length) {
+        alt = features[i].properties["agl"];
+        spd = features[i].properties[SPEED_DATA];
+        i++;
+    }
+    let start = 0;
+    if (i < features.length) {
+        // Go 2 minutes before
+        let time = features[i].properties._raw_ts;
+        tt = new Date(features[i].properties["UTC Time"])
+        time -= BEFORE_TO * 1000;
+        if (time > features[0].properties._raw_ts) {
+            start = indexForValue(ts, time);
+        }
+    }
+    console.log("clipping: take off", tt, alt, spd, i, start, features.length);
+
+    // find landing if any, go backward, find takeoff
+    i = features.length - 1;
+    alt = 0.0;
+    spd = 0.0;
+    while ((alt < ALT_MIN && spd < SPEED_MIN) && i > -1) {
+        alt = features[i].properties["agl"];
+        spd = features[i].properties[SPEED_DATA];
+        i--;
+    }
+    let end = features.length - 1;
+    let was_before = false;
+    if (i > 0) {
+        // Go 2 minutes after
+        let time = features[i].properties._raw_ts;
+        tt = new Date(features[i].properties["UTC Time"])
+        time += AFTER_TD * 1000;
+        if (time < features[features.length - 1].properties._raw_ts) {
+            end = indexForValue(ts, time);
+            if (end < start) {
+                end = features.length - 1;
+                was_before = true;
+            }
+        }
+    }
+    console.log("clipping: landing", tt, alt, spd, i, end, was_before);
+
+    newfeats = (start > 0 || end < features.length) ? features.slice(start, end) : features;
+    console.log("clipping", start, end, newfeats.length, features.length);
+    i = 0;
+    newfeats.forEach( (f) => {
+        f.id = i++;
+    });
+    return newfeats;
+}
+
+function buildMap(geojson) {
+    // flight path
+    let features = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("_raw_ts") > -1)
+    // data should be ordered, just in case, once and for all, we order them here...
+    features = features.sort((first, second) => { return first.properties["_raw_ts"] - second.properties["_raw_ts"] });
+    features = clip(features);
+
+    chartData[FEATURES] = features;
+    chartData[NUM_POINTS] = chartData[FEATURES].length; // all datasets should have that amount of points
+
+    chartData[LATLNGS] = chartData[FEATURES].map((f) => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
+    chartData[TIME_DATA] = chartData[FEATURES].map((p) => p.properties._raw_ts * (RAW_FDR ? 1 : 1000))
+
+    chartData[POINTS] = chartData[FEATURES].map( (f) => {
+        m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
+            icon: TRANSPARENT_ICON
+        })
+        m.on("mouseover", function() {
+            moveMapCursor(f.id);
+            moveChartCursor(f.id);
+        });
+        m.bindTooltip(f.properties["UTC Time"].substr(11,12) + " ("+ f.id + ")");
+        m.bindPopup(point_props(f.properties));
+        return m;
+    });
+    zoomIndex = [0, chartData[POINTS].length];
+
+    // navaids: we can scan all features, even those clipped (geojson.features)
+    navaidFeatures = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("navType") > -1);
+    console.log("navaids", navaidFeatures.length);
+    let navaids = navaidFeatures.map( (f) => {
+        m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
+            icon: NAVAID_ICON(f.properties["navType"])
+        });
+        m.bindTooltip(f.properties["navAidId"] + " (" + f.properties["navType"] + ")");
+        m.bindPopup(navaid_props(f.properties));
+        return m;
+    });
+
+    // commands
+    commandFeatures = geojson.features.filter((f) => f.geometry.type == "Point" && Object.keys(f.properties).indexOf("command") > -1);
+    let oldfdict = {};
+    features.forEach( (f) => { oldfdict[f._id] = f; });
+    const oldkeys = Object.keys(oldfdict).map( f => parseInt(f) );
+    let commands = Array();
+    commandFeatures.forEach( (f) => {
+        if (oldkeys.indexOf(f.properties["index"]) == -1) {
+            console.log("command not located", f.properties["index"], f);
+            return;
+        }
+        f.geometry = oldfdict[f.properties["index"]]["geometry"]
+        m = L.marker([f.geometry.coordinates[1], f.geometry.coordinates[0]], {
+            icon: NAVAID_ICON("Command")
+        });
+        m.bindTooltip(f.properties.command);
+        m.bindPopup(command_props(f.properties));
+        commands.push(m)
+    });
+    console.log("commands", commandFeatures.length, commands.length);
+
+    // Start leaflet
+    let avglat = chartData[FEATURES].reduce( (acc, f) => acc + f.geometry.coordinates[1], 0) / chartData[FEATURES].length;
+    let avglon = chartData[FEATURES].reduce( (acc, f) => acc + f.geometry.coordinates[0], 0) / chartData[FEATURES].length;
+    // console.log(avglat, avglon);
+    map = L.map("map").setView([avglat, avglon], 13);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        attribution: "&copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a>"
+    }).addTo(map);
+
+    // display whole flight as linestring
+    L.polyline(chartData[LATLNGS], {
+        color: "darkblue",
+        fill: false
+    }).addTo(map);
+    mapCursor = L.marker(chartData[LATLNGS][0], {
+        icon: AIRCRAFT_ICON,
+        autoPanOnFocus: true
+    }).addTo(map);
+
+    // add interaction "invisible" points
+    flightpath = L.layerGroup().addTo(map);
+    placePoints(chartData[TIME_DATA][0], chartData[TIME_DATA][chartData[TIME_DATA].length - 1]) // whole path
+
+    let navaid_layer = L.layerGroup().addTo(map);
+    let airport_layer = L.layerGroup().addTo(map);
+    // not nice, but it works...
+    // console.log("navaid", m.options.icon.options.iconUrl.replace("media/", "").replace(".svg", ""))
+    navaids.forEach((m) => { if ( m.options.icon.options.iconUrl.replace("media/", "").replace(".svg", "") == "airport" ) { airport_layer.addLayer(m); } else { navaid_layer.addLayer(m); } })
+
+    let commands_layer = L.layerGroup().addTo(map);
+    commands.forEach((m) => { commands_layer.addLayer(m); })
+
+    const overlayMaps = {
+        "Navaids": navaid_layer,
+        "Airports": airport_layer,
+        "Commands": commands_layer
+    };
+    const layerControl = L.control.layers(null, overlayMaps).addTo(map);
+
+    map.on("zoomend", mapZoomed);
+    map.on("moveend", mapPanned);
+    map.fitBounds(chartData[LATLNGS]);
+}
+
+// MAP ZOOM MANAGEMENT
+function placePoints(tmin, tmax) {
+    let lo = timeIndex(tmin);
+    let hi = timeIndex(tmax);
+    let len = hi - lo;
+    let step = len > MAX_MAP_POINTS ? Math.round(len / MAX_MAP_POINTS) : 1;
+
+    flightpath.clearLayers();
+    let i = 0;
+    let cnt = 0;
+    while (i < chartData[NUM_POINTS] && chartData[TIME_DATA][i] < tmin) {
+        i++;
+    }
+    while (i < chartData[NUM_POINTS] && chartData[TIME_DATA][i] <= tmax) {
+        flightpath.addLayer(chartData[POINTS][i]);
+        cnt++;
+        i += step;
+    }
+    console.log("map decimation", chartData[POINTS].length, MAX_MAP_POINTS, step, cnt);
+}
+
+function findMapZoomIndex() {
+    // finds part of flight currently shown
+    // finds first and last point on path that are display in map bounds
+    const bbox = map.getBounds();
+    let i = 0;
+    while (i < chartData[LATLNGS].length && ! bbox.contains(chartData[LATLNGS][i])) {
+        i++;
+    }
+    let lo = i;
+    i = chartData[LATLNGS].length - 1;
+    while (i >= 0 && ! bbox.contains(chartData[LATLNGS][i])) {
+        i--;
+    }
+    if (lo > i) {
+        const t = lo;
+        lo = i;
+        i = t;
+    }
+    // console.log("map: range shown", lo, i);
+    return [lo, i];
+}
+
+function zoomMap() {
+    // zoom map on visible part of flight
+    map.fitBounds(chartData[LATLNGS].slice(zoomIndex[0], zoomIndex[1]));    
+}
+
+function mapZoomOnIndex(lo, hi) {
+    // zoom map on supplied part of flight (called from charts, with range of visible part)
+    if (lo > hi) {
+        let t = lo;
+        lo = hi;
+        hi = t;
+    }
+    if (lo < 0 || lo > chartData[LATLNGS].length || hi < 0 || hi > chartData[LATLNGS].length) {
+        console.warn("out of range", lo, hi)
+        return;
+    }
+    zoomIndex = [lo, hi];
+    zoomMap();
+}
+
+function mapZoomed() {
+    // called when map zoom has changed
+    zoomIndex = findMapZoomIndex();
+    adjustCharts = (zoomIndex[1] - zoomIndex[0]) < (chartData[LATLNGS].length - 1);
+    panOK = ! adjustCharts;
+    if (allCharts[SPEED_ALT_CHART] != undefined) {
+        syncAllCharts();
+    }
+    // console.log("map zoomed", adjustCharts)
+}
+
+function mapPanned() {
+    // called when map is panned
+    zoomIndex = findMapZoomIndex();
+    if (allCharts[SPEED_ALT_CHART] != undefined && adjustCharts) {
+        syncAllCharts();
+    }
+    // console.log("map panned", adjustCharts)
+}
+
+// CHARTS
+//
+function buildCharts() {
+    // global constants
+    Chart.defaults.backgroundColor = '#222';
+    Chart.defaults.borderColor = '#aaa';
+    Chart.defaults.color = '#ddd';        
+    Chart.defaults.color = '#ddd';
+    Chart.defaults.elements.point.radius = 0;
+    Chart.defaults.elements.line.tension = 0;
+
+    // Prepare HTML
+    container = document.getElementById("charts");
+    // Speed/altitude chart (always)
+    let canvas = document.createElement("canvas");
+    canvas.id = SPEED_ALT_CHART;
+    container.appendChild(canvas);
+    // Buttons (always)
+    let buttons = document.createElement("div");
+    buttons.id = "buttons";
+    container.appendChild(buttons);
+
+    // special charts if data available
+    if (commandFeatures.length > 0) {
+        // Timeline
+        let tl = document.createElement("div");
+        tl.id = "timeline";
+        tl.classList.add("timeline");
+        let tlc = document.createElement("canvas");
+        tlc.id = "timelineChart";
+        tl.appendChild(tlc);
+        container.appendChild(tl);
+        buildTimeline(commandFeatures);
+    }
+
+    // guess properties list from first point feature
+    const f = chartData[FEATURES][0];
+    const chartCandidates =  Object.keys(f.properties)
+        .filter((p) => typeof(f.properties[p]) == "number" && IGNORE.indexOf(p.trim()) == -1);
+    if (chartCandidates.length == 0) {
+        return;
+    }
+    // console.log(chartCandidates, chartCandidates.length);
+
+    // collect named charts with their content
+    anonCharts =  chartCandidates.slice(); // copy
+    anonCharts.remove = function(elem) {
+        const index = this.indexOf(elem);
+        if (index > -1) {
+          this.splice(index, 1);
+        }
+    };
+    // Add "flight radara24 / flightaware" type chart, always
+    chartNames[SPEED_ALT_CHART] = [SPEED_DATA, ALTITUDE_DATA];
+    anonCharts.remove(SPEED_ALT_CHART);
+    anonCharts.remove(ALTITUDE_DATA);
+    if (fdr_data.length > 0) {
+        fdr_data.forEach( (d) => {
+            if (d.chart != null) {
+                if (Object.keys(chartNames).indexOf(d.chart) == -1) {
+                    chartNames[d.chart] = Array();
+                    if (d.chart != NO_CHART) {
+                    }
+                }
+                if (d._indices != null) {
+                    d._indices.forEach( (i) => {
+                        const name = d.name + "[" + i + "]";
+                        chartNames[d.chart].push(name);
+                        anonCharts.remove(name); // remove(anonCharts, name)
+                    });
+                } else {
+                    chartNames[d.chart].push(d.name);
+                    anonCharts.remove(d.name); // remove(anonCharts, d.name)
+                }
+            } else if (AUTO_CHART_ARRAY && d._indices != null) {
+                console.log("auto charting", d.name, d._indices);
+                if (Object.keys(chartNames).indexOf(d.name) == -1) {
+                    chartNames[d.name] = Array();
+                }
+                d._indices.forEach( (i) => {
+                    const name = d.name + "[" + i + "]";
+                    chartNames[d.name].push(name);
+                    anonCharts.remove(name); // remove(anonCharts, name)
+                });
+            }
+        });
+    }
+    console.log("named charts", chartNames);
+    console.log("other charts", anonCharts);
+
+    if (AUTO_ADJUST_LAYOUT) {
+        optimizeChartLayout(Object.keys(chartNames).length - 1 + anonCharts.length); // do not count flight radar
+    }
+
+    // from layout, create columns for charts
+    let width = Math.floor(100 / NUM_COLUMNS, 0) + "%";
+    for(i = 0; i < NUM_COLUMNS; i++) {
+        let div = document.createElement("div");
+        div.id = "charts" + i;
+        div.classList.add("chart");
+        div.style.width = width;
+        container.appendChild(div);
+    }
+
+    installCharts();
+}
+
+function optimizeChartLayout(numdata) {
+    // Adjust NUM_DATA_PER_CHART, NUM_COLUMNS
+    try {
+        if (numdata > (MAX_LINES * NUM_COLUMNS * MAX_DATA_PER_CHART)) { // cannot restrict to MAX_LINES lines of graphs
+            NUM_COLUMNS = MAX_COLUMNS;
+            NUM_DATA_PER_CHART = MAX_DATA_PER_CHART;
+            console.log("optimizeChartLayout maxima");
+            return;
+        }
+        const limit = Math.min.apply(null, [MAX_COLUMNS, MAX_DATA_PER_CHART])
+        console.log("optimizeChartLayout minimal", limit);
+        if (numdata <= limit && COMPACT > 0) {
+            if (COMPACT == 1) {
+                NUM_DATA_PER_CHART = 1;
+                NUM_COLUMNS = numdata;
+            } else if (COMPACT == 2) {
+                NUM_DATA_PER_CHART = numdata;
+                NUM_COLUMNS = 1;
+            }
+            return;
+        }
+        if (numdata <= (MAX_LINES * NUM_COLUMNS)) { // max chart density but only 1 data per chart
+            NUM_DATA_PER_CHART = 1;
+            NUM_COLUMNS = Math.ceil(numdata / MAX_LINES);
+            console.log("optimizeChartLayout 1 data per chart");
+            return;
+        }
+        let per_line = Math.ceil(numdata / MAX_LINES);  // num of data to show per lines
+        NUM_DATA_PER_CHART = Math.ceil(Math.sqrt(per_line));
+        if (NUM_DATA_PER_CHART == 0) {
+            NUM_DATA_PER_CHART = 1;
+        }
+        NUM_COLUMNS = Math.ceil(per_line / NUM_DATA_PER_CHART);
+        let e_lines = Math.ceil(numdata / (NUM_DATA_PER_CHART * NUM_COLUMNS));
+        // console.log("optimizeChartLayout", numdata, per_line, e_lines, MAX_LINES, NUM_COLUMNS, NUM_DATA_PER_CHART);
+    } catch (e) { // restore defaults
+        console.log(e);
+        console.log("optimizeChartLayout default");
+        NUM_COLUMNS = 3;          
+        NUM_DATA_PER_CHART = 4;
+    }
+}
+
+function chartColor(idx) {
+    const BORDER_COLORS = [
+        "rgb(54, 162, 235)",
+        "rgb(255, 99, 132)",
+        "rgb(255, 159, 64)",
+        "rgb(255, 205, 86)",
+        "rgb(75, 192, 192)",
+        "rgb(153, 102, 255)",
+        "rgb(201, 203, 207)",
+        "rgb(161, 77, 160)",
+        "rgb(1, 240, 139)",
+        "rgb(255, 44, 44)",
+        "rgb(65, 232, 255)",
+        "rgb(49, 85, 255)",
+        "rgb(212, 88, 255)",
+        "rgb(141, 228, 0)",
+        "rgb(93, 53, 255)",
+        "rgb(4, 133, 117)",
+        "rgb(4, 188, 67)",
+        "rgb(228, 0, 150)",
+        "rgb(106, 191, 203)",
+        "rgb(255, 136, 222)",
+        "rgb(228, 96, 0)",
+    ]
+
+    const COLORS = [
+        "#e6194b",
+        "#3cb44b",
+        "#ffe119",
+        "#4363d8",
+        "#f58231",
+        "#911eb4",
+        "#46f0f0",
+        "#f032e6",
+        "#bcf60c",
+        "#fabebe",
+        "#008080",
+        "#e6beff",
+        "#9a6324",
+        "#fffac8",
+        "#800000",
+        "#aaffc3",
+        "#808000",
+        "#ffd8b1",
+        "#808080",
+        "#ffffff",
+    ];
+
+    if (idx == -1) {
+        idx = Math.floor(Math.random() * COLORS.length);
+    }
+    return COLORS[idx % COLORS.length];
+}
+
+function propertyValues(label) {
+    if (Object.keys(chartData[FEATURES][0].properties).indexOf(label) == -1) {
+        console.warn("property not found in feature", label, chartData[FEATURES][0].properties);
+        return [];
+    }
+    if (Object.keys(chartData).indexOf(label) == -1) {
+        chartData[label] = chartData[FEATURES].map((f) => f.properties[label]);
+    }
+    return chartData[label]
+}
+
+function fetchData(label, tmin, tmax) {
+    // build {x: ts, y: value} for label dataset with tmin < ts < tmax
+    const step = Math.max(1, Math.round((tmax - tmin) / 100000));
+    const data = [];
+
+    if (tmin == -1) { // first
+        tmin = chartData[TIME_DATA][0];
+    }
+    if (tmax == -1) { // last
+        tmax = chartData[TIME_DATA][chartData[NUM_POINTS] - 1];
+    }
+
+    let lo = timeIndex(tmin);
+    let hi = timeIndex(tmax);
+    let len = hi - lo;
+    let outof = len > MAX_MAP_POINTS ? Math.round(len / MAX_MAP_POINTS) : 1;
+
+    let i = 0;
+    while (i < chartData[NUM_POINTS] && chartData[TIME_DATA][i] < tmin) {
+        i++;
+    }
+    const start = i > 0 ? i - 1 : i;
+    while (i < chartData[NUM_POINTS] && chartData[TIME_DATA][i] <= tmax) {
+        data.push({x: chartData[TIME_DATA][i], y: chartData[label][i]});
+        i += outof;
+    }
+    const end = i - outof;
+    console.log("decimation", lo, hi, len, outof, MAX_CHART_POINTS * outof, step, data.length, start, end);
+    return data;
+    // return chartData[label].slice(start, end).map( (f) => { {x: chartData[TIME_DATA][f.id], y: chartData[label][f.id]}});
+}
+
+function indexForValue(arr, value) {
+    // find index of value in *sorted* array arr
+    // this only works if values are ordered,
+    // solely used for time, which is ordered.
+    let index = arr.indexOf(value);
+    if (index > -1) { // found exact match
+        return index;
+    }
+    index = 0;
+    while (value > arr[index] && index < arr.length) {
+        index++;
+    }
+    return index;
+}
+
+function timeIndex(ts) {
+    // return original array index for supplied timestamp
+    if (chartData[TIME_DATA] == undefined || chartData[TIME_DATA].length == 0) {
+        console.error("no time array");
+        return 0;
+    }
+    return indexForValue(chartData[TIME_DATA], ts);
+}
+
+function addButtons() {
+    const container = document.getElementById("buttons");
+    let button = document.createElement("button");
+    button.type ="button";
+    button.innerHTML = "Reset view";
+    button.addEventListener("click", function() {
+        console.log("zoom reset before")
+        resetZoom();
+    });
+    container.appendChild(button);
+    // container.innerHTML += "&nbsp;"  // above handler stops working...??
+    // button = document.createElement("button");
+    // button.type ="button";
+    // button.innerHTML = "New FDR File";
+    // button.addEventListener("click", function() {
+    //     location.reload();
+    // });
+    // container.appendChild(button);
+}
+
+function buildTimeline(fc) {
+    let occurences = Array()
+    let cmd_color = {};
+    fc.forEach( (f) => {
+        const c = f.properties.command;
+        if (Object.keys(cmd_color).indexOf(c) == -1) {
+            cmd_color[c] = chartColor(-1);
+        }
+        occurences.push({x: new Date(f.properties["UTC Time"]), y: c});
+    });
+
+    let config = {
+        type: 'line',
+        data: {
+            datasets: [{
+                data: occurences,
+                pointBackgroundColor: function(context) {
+                    return cmd_color[context.raw.y];
+                },
+                pointRadius: 6,
+                showLine: false
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            normalized: true,
+            onHover: (e) => {
+                const canvasPosition = Chart.helpers.getRelativePosition(e, timelineChart);
+                // get index for value
+                const value = timelineChart.scales.x.getValueForPixel(canvasPosition.x);
+                const index = timeIndex(value);
+                // console.log("other", chartId, canvasPosition, index);
+                moveMapCursor(index);
+            },
+            plugins: {
+                title: {
+                  display: true,
+                  text: "Command Executions"
+                },
+                legend: {
+                    display: false,
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.parsed.y + context.formattedValue;
+                        }
+                    }
+                },
+            },
+            scales: {
+                x: {
+                    type: "time",
+                    min: chartData[TIME_DATA][0],
+                    max: chartData[TIME_DATA][chartData[TIME_DATA].length - 1]
+                },
+                y: {
+                    type: "category",
+                    ticks: {
+                        color: function(context) {
+                            return cmd_color[context.tick.label];
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    let ctx = document.getElementById("timelineChart");
+    timelineChart = new Chart(ctx, config);
+}
+
+function installCharts() {
+    let color = 0; // color
+
+    // Named charts
+    Object.keys(chartNames).forEach( (label) => { // for each named chart
+        if (label == NO_CHART) {
+            return;
+        }
+        let datasets = [];
+        if (label == SPEED_ALT_CHART) {
+            chartData[SPEED_DATA] = propertyValues(SPEED_DATA).map((s) => s * SPEED_CONVERT[SPEED_UNIT])
+            datasets.push({
+                backgroundColor: "rgba(" + SPEED_COLOR.join(",") + ", 0.2)",
+                borderColor: "rgba(" + SPEED_COLOR.join(",") + ", 1)", // orange
+                borderWidth: 2,
+                data: fetchData(SPEED_DATA, -1, -1),
+                label: SPEED_LABEL,
+                yAxisID: "y",
+            });
+            chartData[ALTITUDE_DATA] = propertyValues(ALTITUDE_DATA).map((s) => s * ALTITUDE_CONVERT[ALTITUDE_UNIT])
+            datasets.push({
+                backgroundColor: "rgba(" + ALTITUDE_COLOR.join(",") + ", 0.2)",
+                borderColor: "rgba(" + ALTITUDE_COLOR.join(",") + ", 1)", // blue
+                borderWidth: 2,
+                data: fetchData(ALTITUDE_DATA, -1, -1),
+                label: ALTITUDE_LABEL,
+                yAxisID: "y1",
+            });
+            addChart([label], datasets);
+            addButtons();
+            return;
+        }
+        const data_in_chart = chartNames[label].length
+        // console.log("named chart", label, chartNames[label], chartNames[label].length)
+        chartNames[label].forEach( (d) => {  // for each dataset/property in the named chart
+            let data = propertyValues(d);  // builds chartData[d]
+            datasets.push({
+                backgroundColor: chartColor(color) + "60", // transparency
+                borderColor: chartColor(color),
+                borderWidth: 2,
+                data: fetchData(d, -1, -1),
+                label: d.replaceAll("_", " "),
+                yAxisID: data_in_chart == 2 && (color%2) == 1 ? "y1" : "y",
+            });
+            color++;
+        });
+        addChart([label], datasets);
+    });
+
+    // All remaining charts
+    let title = [];
+    let datasets = [];
+    let i = 0;
+    while (i < anonCharts.length) {
+        let label = anonCharts[i];
+        let data = propertyValues(label);
+        title.push(label.replaceAll("_", " "))
+        datasets.push({
+            backgroundColor: chartColor(i) + "60", // transparency
+            borderColor: chartColor(i),
+            borderWidth: 2,
+            data: fetchData(label, -1, -1),
+            label: label.replaceAll("_", " "),
+            yAxisID: NUM_DATA_PER_CHART == 2 && (i%2) == 1 ? "y1" : "y",
+        });
+        if (datasets.length >= NUM_DATA_PER_CHART) {
+            addChart(title, datasets);
+            title = [];
+            datasets = [];
+        }
+        color++;
+        i++;
+    }
+    if (datasets.length > 0) {
+        addChart(title, datasets);
+    }
+}
+
+function addChart(title, datasets) {
+    const chartId = (title.length > 0 && title[0] == SPEED_ALT_CHART) ? SPEED_ALT_CHART : "chart" + title.join("").replaceAll(" ", "");
+    if (chartId != SPEED_ALT_CHART) {
+        let chartContainerId = "charts"
+        if (NUM_COLUMNS > 1) {
+            chartContainerId += (Object.keys(allCharts).length % NUM_COLUMNS);
+        }
+        const frame = document.getElementById(chartContainerId);
+        let canvas = document.createElement("canvas");
+        canvas.id = chartId;
+        frame.appendChild(canvas);
+    }
+
+    const zoomOptions = {
+      zoom: {
+        mode: "x",
+        onZoomComplete: syncCharts,
+        drag: {
+          enabled: true,
+          borderColor: "rgb(" + AIRCRAFT_COLOR + ")", // "rgb(54, 162, 235)"
+          borderWidth: 1,
+          backgroundColor: "rgba(" + AIRCRAFT_COLOR + ", 0.3)"
+        }
+      },
+      pan: {
+        enabled: true,
+        mode: "x",
+        onPanComplete: syncCharts,
+        modifierKey: "shift",
+      }
+    };
+
+    const config = {
+        type: "line",
+        plugins: [{ // https://stackoverflow.com/questions/68058199/chartjs-need-help-on-drawing-a-vertical-line-when-hovering-cursor
+            afterDraw: chart => {
+                if (chart.tooltip?._active?.length) {
+                    let x = chart.tooltip._active[0].element.x;
+                    let yAxis = chart.scales.y;
+                    let ctx = chart.ctx;
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(x, yAxis.top);
+                    ctx.lineTo(x, yAxis.bottom);
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = CHART_CURSOR_COLOR;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        }],
+        data: {
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            normalized: true,
+            onHover: (e) => {
+                const canvasPosition = Chart.helpers.getRelativePosition(e, allCharts[chartId]);
+                // get index for value
+                const value = allCharts[chartId].scales.x.getValueForPixel(canvasPosition.x);
+                const index = timeIndex(value);
+                // console.log("other", chartId, canvasPosition, index);
+                moveMapCursor(index);
+            },
+            scales: {
+                x: {
+                  type: "time",
+                },
+            },
+            plugins: {
+                zoom: zoomOptions,
+                legend: {
+                    position: "top",
+                },
+                title: {
+                    display: chartId != SPEED_ALT_CHART,
+                    text: title.join(", ")
+                }
+            },
+            interaction: {
+                intersect: false,
+                mode: "index",
+            }
+        },
+    };
+    // raffinement for special cases
+    if (chartId == SPEED_ALT_CHART) {
+        config.options.plugins["tooltip"] = {
+            callbacks: {
+                label: function(context) {
+                    let label = context.dataset.label || "";
+                    if (label) {
+                        label += ": ";
+                    }
+                    if (context.parsed.y !== null) {
+                        if (context.dataset.label == SPEED_LABEL) {
+                            label += Math.round(context.parsed.y, 0) + SPEED_UNIT;
+                        } else if (context.dataset.label == ALTITUDE_LABEL) {
+                            label += Math.round(context.parsed.y, 0) + ALTITUDE_UNIT;
+                        }
+                    }
+                    return label;
+                }
+            }
+        }
+    }
+    if (datasets.length == 2) {
+        if (config["data"]["datasets"][1]["yAxisID"] == "y") { // forces second scale
+            config["data"]["datasets"][1]["yAxisID"] = "y1"
+        }        
+        let before = config["options"]["scales"] ? config["options"]["scales"] : {}
+        config["options"]["scales"] = Object.assign({}, before, {
+                y: {
+                    type: "linear",
+                    display: true,
+                    position: "left",
+                    title: {
+                        display: true,
+                        text: datasets[0]["label"],
+                        color: datasets[0]["borderColor"],
+                        padding: {
+                            top: 30,
+                            left: 0,
+                            right: 0,
+                            bottom: 0
+                        }
+                    },
+                },
+                y1: {
+                    type: "linear",
+                    display: true,
+                    position: "right",
+                    title: {
+                        display: true,
+                        text: datasets[1]["label"],
+                        color: datasets[1]["borderColor"],
+                        padding: {
+                            top: 30,
+                            left: 0,
+                            right: 0,
+                            bottom: 0
+                        }
+                    },
+                    // grid line settings
+                    grid: {
+                        drawOnChartArea: false, // only want the grid lines for one axis to show up
+                    },
+                },
+            }
+        );
+    }
+
+    const ctx = document.getElementById(chartId);
+    allCharts[chartId] = new Chart(ctx, config);
+}
+
+// CHART ZOOM MANAGEMENT
+// See here: https://github.com/chartjs/chartjs-plugin-zoom/issues/238
+function syncCharts(chart) {
+    // called when a chart is zoomed or panned to update all other charts
+    const sourceChart = chart.chart;
+
+    if (typeof sourceChart.initial === 'undefined') {
+        sourceChart.initial = sourceChart.getInitialScaleBounds();
+    }
+
+    const sourceInitialBounds = sourceChart.initial;
+
+    const sourceXrange = Math.abs(sourceInitialBounds.x.max) + Math.abs(sourceInitialBounds.x.min);
+    const sourceXscaleMin = (sourceChart.scales.x.min - sourceInitialBounds.x.min) / sourceXrange;
+    const sourceXscaleMax = (sourceChart.scales.x.max - sourceInitialBounds.x.max) / sourceXrange;
+
+    const sourceYrange = Math.abs(sourceInitialBounds.y.max) + Math.abs(sourceInitialBounds.y.min);
+    const sourceYscaleMin = (sourceChart.scales.y.min - sourceInitialBounds.y.min) / sourceYrange;
+    const sourceYscaleMax = (sourceChart.scales.y.max - sourceInitialBounds.y.max) / sourceYrange;
+
+    Object.values(Chart.instances).forEach(targetChart => {
+        if (targetChart !== chart.chart) {
+            if (typeof targetChart.initial === 'undefined') {
+                targetChart.initial = targetChart.getInitialScaleBounds();
+            }
+
+            const targetInitialBounds = targetChart.initial;
+
+            const targetXrange = Math.abs(targetInitialBounds.x.max) + Math.abs(targetInitialBounds.x.min);
+            targetChart.options.scales.x.min = targetInitialBounds.x.min + targetXrange * sourceXscaleMin;
+            targetChart.options.scales.x.max = targetInitialBounds.x.max + targetXrange * sourceXscaleMax;
+
+            const targetYrange = Math.abs(targetInitialBounds.y.max) + Math.abs(targetInitialBounds.y.min);
+            targetChart.options.scales.y.min = targetInitialBounds.y.min + targetYrange * sourceYscaleMin;
+            targetChart.options.scales.y.max = targetInitialBounds.y.max + targetYrange * sourceYscaleMax;
+
+            targetChart.update();
+        }
+    });
+    // Synchronize map
+    let lo = timeIndex(sourceChart.scales.x.min);
+    let hi = timeIndex(sourceChart.scales.x.max);
+    // console.log("chart: range shown", lo, hi);
+    mapZoomOnIndex(lo, hi);
+    panOK = false;  // since we focus on part of flight
+}
+
+function syncAllCharts() {
+    // called when a chart is zoomed or panned
+    // could not get chart.zoom() and chart.pan() working.
+    // worked around like so:
+    const sourceChart = allCharts[SPEED_ALT_CHART]; // we need on to start, they're all synchronized
+    if (typeof sourceChart.initial === 'undefined') {
+        sourceChart.initial = sourceChart.getInitialScaleBounds();
+    }
+    // compute new scale values on speedAltChart (model, all charts share similar x axis)
+    const sourceInitialBounds = sourceChart.initial;
+    const new_min = chartData[TIME_DATA][zoomIndex[0]];
+    const new_max = chartData[TIME_DATA][zoomIndex[1]];
+    const sourceXrange = Math.abs(sourceInitialBounds.x.max) + Math.abs(sourceInitialBounds.x.min);
+    const sourceXscaleMin = (new_min - sourceInitialBounds.x.min) / sourceXrange;
+    const sourceXscaleMax = (new_max - sourceInitialBounds.x.max) / sourceXrange;
+    const sourceYrange = Math.abs(sourceInitialBounds.y.max) + Math.abs(sourceInitialBounds.y.min);
+    const sourceYscaleMin = (sourceChart.scales.y.min - sourceInitialBounds.y.min) / sourceYrange;
+    const sourceYscaleMax = (sourceChart.scales.y.max - sourceInitialBounds.y.max) / sourceYrange;
+    // update all charts (including speedAltChart) with new scale values
+    Object.values(Chart.instances).forEach(targetChart => {
+        if (typeof targetChart.initial === 'undefined') {
+            targetChart.initial = targetChart.getInitialScaleBounds();
+        }
+        const targetInitialBounds = targetChart.initial;
+        const targetXrange = Math.abs(targetInitialBounds.x.max) + Math.abs(targetInitialBounds.x.min);
+        targetChart.options.scales.x.min = targetInitialBounds.x.min + targetXrange * sourceXscaleMin;
+        targetChart.options.scales.x.max = targetInitialBounds.x.max + targetXrange * sourceXscaleMax;
+        const targetYrange = Math.abs(targetInitialBounds.y.max) + Math.abs(targetInitialBounds.y.min);
+        targetChart.options.scales.y.min = targetInitialBounds.y.min + targetYrange * sourceYscaleMin;
+        targetChart.options.scales.y.max = targetInitialBounds.y.max + targetYrange * sourceYscaleMax;
+        targetChart.update();
+    });
+    panOK = false;  // since we focus on part of flight
+}
+
+// MAP and CHART ZOOM MANAGEMENT
+function resetZoom() {
+    mapZoomOnIndex(0, chartData[LATLNGS].length);
+    allCharts[SPEED_ALT_CHART].resetZoom();
+    Object.values(allCharts).forEach( (c) => {
+        c.resetZoom()
+    });
+    // fetchChart.resetZoom();
+    panOK = false;
+    adjustCharts = false;
+    console.log("zoom reset")
+}
+
+// CURSOR ANIMATION
+function convertDegreesToRadians(degrees) {
+    return degrees * (Math.PI / 180);
+}
+
+function convertRadiansToDegrees(radians) {
+    return radians * (180 / Math.PI);
+}
+
+function aircraftPosition(idx) {
+    if (idx == undefined) {
+        console.warn("aircraftPosition", idx);
+        return;
+    }
+    let pos = chartData[LATLNGS][idx];
+    let orient = orients[idx];
+    return pos + orients;
+}
+
+function distance(src, dst) {
+    if (src == undefined || dst == undefined) {
+        console.warn("distance", src, dst);
+        return 0.0;
+    }
+    let lat1 = convertDegreesToRadians(src[0]);
+    let lon1 = convertDegreesToRadians(src[1]);
+    let lat2 = convertDegreesToRadians(dst[0]);
+    let lon2 = convertDegreesToRadians(dst[1]);
+    
+    const { sin, cos, sqrt, atan2 } = Math;
+    
+    const R = 6371; // earth radius in km 
+    const dLat = lat2 - lat1;
+    const dLon = lon2 - lon1;
+    const a = sin(dLat / 2) * sin(dLat / 2)
+            + cos(lat1) * cos(lat2)
+            * sin(dLon / 2) * sin(dLon / 2);
+    const c = 2 * atan2(sqrt(a), sqrt(1 - a)); 
+    const d = R * c;
+    return d; // distance in km
+}
+
+function tracking(src, dst) {
+    if (src == undefined || dst == undefined) {
+        console.warn("tracking", src, dst);
+        return 0.0;
+    }
+    let lat1 = convertDegreesToRadians(src[0]);
+    let lon1 = convertDegreesToRadians(src[1]);
+    let lat2 = convertDegreesToRadians(dst[0]);
+    let lon2 = convertDegreesToRadians(dst[1]);
+    let y = Math.sin(lon2 - lon1) * Math.cos(lat2);
+    let x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
+    return convertRadiansToDegrees(Math.atan2(y, x));
+}
+
+function trackingAtIndex(idx_in) {
+    if (idx_in == undefined) {
+        console.warn("trackingAtIndex", idx_in);
+        return 0.0;
+    }
+    let idx = idx_in >= chartData[LATLNGS].length ? chartData[LATLNGS].length - 1 : idx_in;
+    let rot = idx >= (chartData[LATLNGS].length - 1) ?
+        tracking(chartData[LATLNGS][chartData[LATLNGS].length - 2], chartData[LATLNGS][chartData[LATLNGS].length - 1]) :
+        tracking(chartData[LATLNGS][idx], chartData[LATLNGS][idx+1]);
+    return rot;
+}
+
+function moveMapCursor(idx_in) {
+    if (idx_in == undefined) {
+        console.warn("moveMapCursor", idx_in);
+        return;
+    }
+    let idx = idx_in >= chartData[LATLNGS].length ? chartData[LATLNGS].length - 1 : idx_in;
+    let rot = trackingAtIndex(idx) + AIRCRAFT_ICON_ROTATION;
+    mapCursor.setLatLng(chartData[LATLNGS][idx]);
+    mapCursor._icon.style.transformOrigin = Math.round(AIRCRAFT_ICON_SIZE/2) + "px " +
+                                            Math.round(AIRCRAFT_ICON_SIZE/2) + "px";
+    mapCursor._icon.style.transform += " rotateZ(" + Math.round(rot) + "deg)";
+    // console.log(mapCursor._icon.style.transform);
+    if (panOK) {
+        map.panTo(chartData[LATLNGS][idx]);
+    }
+}
+
+// var chartImages = {};
+function moveChartCursor(idx) {
+    let x = allCharts[SPEED_ALT_CHART].scales.x.getPixelForValue(chartData[TIME_DATA][idx], idx);
+    let yAxis = allCharts[SPEED_ALT_CHART].scales.y;
+    let ctx = allCharts[SPEED_ALT_CHART].ctx;
+    // if (chartImages[speedAltChart] != undefined) {
+    //     ctx.putImageData(chartImages[speedAltChart], 0, 0);
+    // }
+    // chartImages[speedAltChart] = ctx.getImageData(0,0,speedAltChart.canvas.width,speedAltChart.canvas.height);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, yAxis.top);
+    ctx.lineTo(x, yAxis.bottom);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = CHART_CURSOR_COLOR;
+    ctx.stroke();
+    ctx.restore();
+    Object.values(allCharts).forEach( (chart) => {
+        let x = chart.scales.x.getPixelForValue(chartData[TIME_DATA][idx], idx);
+        let yAxis = chart.scales.y;
+        let ctx = chart.ctx;
+        // if (chartImages[chart] != undefined) {
+        //     ctx.putImageData(chartImages[chart], 0, 0);
+        // }
+        // chartImages[chart] = ctx.getImageData(0,0,chart.canvas.width,chart.canvas.height);
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(x, yAxis.top);
+        ctx.lineTo(x, yAxis.bottom);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = CHART_CURSOR_COLOR;
+        ctx.stroke();
+        ctx.restore();
+        setTimeout(function () {
+            // return the canvas to the state right after we drew the blue rect
+            ctx.putImageData(id2, 0, 0);
+        }, 100);
+    })
+}
+
+// MAIN
+function build(text, filetype) {
+    document.body.style["background-image"] = "none";
+    let geojson;
+    if (filetype == "text/csv") {
+        geojson = parseCSVFile(text);
+    } else if (filetype == "") {
+        geojson = parseFDRFile(text);
+    } else {
+        geojson = parseGeoJSONFile(text);
+    }
+    buildMap(geojson);
+    buildCharts();
+    // makeFetchChart(); // temporary
+}
+
+document.documentElement.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    document.body.classList.add("dragging");
+});
+
+document.documentElement.addEventListener("dragleave", () => {
+    document.body.classList.remove("dragging");
+});
+
+document.documentElement.addEventListener("drop", (e) => {
+    e.preventDefault();
+    document.body.classList.remove("dragging");
+    let fr = new FileReader();
+    let ft = e.dataTransfer.files[0].type;
+    fr.onload = function() {
+        build(fr.result, ft);
+    };
+    if (ALLOWED_FILE_TYPES.indexOf(e.dataTransfer.files[0].type) > -1) {
+        console.log("file FDR viewer", VERSION);        
+        console.log("file type", e.dataTransfer.files[0].type);
+        fr.readAsText(e.dataTransfer.files[0]);
+    } else {
+        console.log("invalid file type", e.dataTransfer.files[0].type);
+    }
+});
+
+////////////////////////////////////////////////////////////////
+// Experimental
+// ADD: <canvas id="fetchChart"></canvas>
+var fetchChart;
+function makeFetchChart() {
+    // TEMPORARY DEMO
+    let timer;
+    const zoomStatus = (chart) => (fetchZoomOptions.zoom.wheel.enabled ? 'enabled' : 'disabled') + ' (' + chart.getZoomLevel() + 'x)';
+    const startFetch = function(chart) {
+        const {min, max} = chart.scales.x;
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+            console.log('fetched data between ' + min + ' and ' + max);
+            chart.data.datasets[0].data = fetchData(SPEED_DATA, min, max);
+            chart.data.datasets[1].data = fetchData(ALTITUDE_DATA, min, max);
+            chart.stop(); // make sure animations are not running
+            chart.update('none');
+        }, 500);
+    }
+    let c = Math.round(Math.random() * 20)
+
+    const data = {
+        datasets: [{
+            label: SPEED_LABEL,
+            borderColor: chartColor(c),
+            backgroundColor: chartColor(c++) + "60", // transparency
+            data: fetchData(SPEED_DATA, -1, -1),
+            yAxisID: "y",
+        },{
+            label: ALTITUDE_LABEL,
+            borderColor: chartColor(c),
+            backgroundColor: chartColor(c) + "60",
+            data: fetchData(ALTITUDE_DATA, -1, -1),
+            yAxisID: "y1",
+        }]
+    };
+
+    const fetchZoomOptions = {
+        limits: {
+            x: {
+                min: 'original',
+                max: 'original',
+                minRange: 30 * 1000  // 30 seconds, 30000msecs
+            },
+        },
+        pan: {
+            enabled: true,
+            mode: 'x',
+            modifierKey: 'meta',   // 'ctrl'|'alt'|'shift'|'meta'
+            onPanComplete: startFetch
+        },
+        zoom: {
+            wheel: {
+              enabled: true,
+            },
+            drag: {
+              enabled: true,
+            },
+            pinch: {
+              enabled: true
+            },
+            mode: 'x',
+            onZoomComplete: startFetch
+        }
+    };
+
+    const fetchScales = {
+        x: {
+            position: 'bottom',
+            min: chartData[TIME_DATA][0],
+            max: chartData[TIME_DATA][chartData[NUM_POINTS] - 1],
+            type: 'time',
+            // ticks: {
+            //     autoSkip: true,
+            //     autoSkipPadding: 50,
+            //     maxRotation: 0
+            // },
+            // time: {
+            //     displayFormats: {
+            //         hour: 'HH:mm',
+            //         minute: 'HH:mm',
+            //         second: 'HH:mm:ss'
+            //     }
+            // }
+        },
+        y: {
+            type: "linear",
+            display: true,
+            position: "left",
+            title: {
+                display: true,
+                text: "Speed (" + SPEED_UNIT + ")",
+                color: data["datasets"][0]["borderColor"],
+                padding: {
+                    top: 30,
+                    left: 0,
+                    right: 0,
+                    bottom: 0
+                }
+            },
+        },
+        y1: {
+            type: "linear",
+            display: true,
+            position: "right",
+            title: {
+                display: true,
+                text: "Altitude (" + ALTITUDE_UNIT + ")",
+                color: data["datasets"][1]["borderColor"],
+                padding: {
+                    top: 30,
+                    left: 0,
+                    right: 0,
+                    bottom: 0
+                }
+            },
+            // grid line settings
+            grid: {
+                drawOnChartArea: false, // only want the grid lines for one axis to show up
+            },
+        },
+    };
+
+    const fetchConfig = {
+        type: 'line',
+        data: data,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: fetchScales,
+            plugins: {
+                zoom: fetchZoomOptions,
+                title: {
+                    display: true,
+                    position: 'bottom',
+                    text: (ctx) => zoomStatus(ctx.chart)
+                }
+            },
+            transitions: {
+                zoom: {
+                    animation: {
+                        duration: 100
+                    }
+                }
+            }
+        }
+    };
+    const fetchCtx = document.getElementById("fetchChart");
+    fetchChart = new Chart(fetchCtx, fetchConfig);
+}
+
+</script>
+</body>
+</html>
