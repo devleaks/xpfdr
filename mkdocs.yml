@@ -25,9 +25,10 @@ theme:
 
 nav:
 - Welcome: index.md
-- Viewer: viewer.md
 - ToLiss Airbus: toliss.md
 - TOML-formatted preferences: toml.md
+- FDR Viewer: fdr_viewer/index.html
+- FDR Viewer notes: viewer.md
 
 markdown_extensions:
 - pymdownx.snippets
